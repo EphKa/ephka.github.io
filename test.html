@@ -8,15 +8,15 @@
   #log{border:1px solid #ccc;height:240px;overflow-y:auto;padding:8px;margin-bottom:8px;white-space:pre-wrap}
   #controls > *{margin:4px 0}
 </style>
-<!-- Pin an exact library version so future releases can't break you -->
+
+<!-- exact version to avoid breaking changes -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
-<h2>P2P Chat test</h2>
+<h2>P2P Chat test</h2>
 
 <div id="controls">
   <p>Your ID: <strong id="my-id">…</strong></p>
-
   <label>
     Connect to peer ID:
     <input id="remote-id" placeholder="paste partner's ID" />
@@ -25,7 +25,6 @@
 </div>
 
 <div id="status">Status: <em>waiting for connection…</em></div>
-
 <div id="log"></div>
 
 <form id="form-msg" style="display:none">
@@ -34,34 +33,35 @@
 </form>
 
 <script>
-/* ---------- 1. Create (or reuse) our peer ---------- */
-const peer   = new Peer();            // uses free Cloud PeerServer :contentReference[oaicite:0]{index=0}
+/* ---------- 1. Create peer with debug + error handlers ---------- */
+const peer   = new Peer({ debug: 3 });    // ⚠️ new
 const logBox = document.getElementById('log');
-let   conn   = null;                  // active DataConnection
+let   conn   = null;
 
 peer.on('open', id => document.getElementById('my-id').textContent = id);
-
-/* ---------- 2. Handle incoming connection ---------- */
-peer.on('connection', c => {
-  if (conn) c.close();                // allow only one chat at a time
-  setupConnection(c);
+peer.on('error', err => {                 // ⚠️ new
+  console.error('PeerJS', err);
+  log('⚠️ ' + err.type + ': ' + err.message);
 });
 
-/* ---------- 3. “Connect” button handler ---------- */
+/* ---------- 2. Incoming connection ---------- */
+peer.on('connection', c => { if (conn) c.close(); setup(c); });
+
+/* ---------- 3. Manual connect ---------- */
 document.getElementById('btn-connect').onclick = () => {
   const id = document.getElementById('remote-id').value.trim();
   if (!id) return alert('Enter a peer ID first!');
-  setupConnection(peer.connect(id));
+  setup(peer.connect(id));
 };
 
-/* ---------- 4. Common DataConnection wiring ---------- */
-function setupConnection(c){
+/* ---------- utilities ---------- */
+function setup(c){
   conn = c;
   document.getElementById('status').textContent = `Status: connecting to ${c.peer}…`;
   c.on('open', () => {
     document.getElementById('status').textContent = `Status: connected to ${c.peer}`;
     document.getElementById('form-msg').style.display = '';
-    log(`🕹 Connected to ${c.peer}`);
+    log(`🟢 Connected to ${c.peer}`);
   });
   c.on('data',  d => log(`👤 ${c.peer}: ${d}`));
   c.on('close', () => {
@@ -72,21 +72,16 @@ function setupConnection(c){
   });
 }
 
-/* ---------- 5. Send‑message form ---------- */
 document.getElementById('form-msg').addEventListener('submit', e=>{
   e.preventDefault();
-  const txt = document.getElementById('msg').value;
+  const txt = msg.value;
   if (!txt || !conn?.open) return;
   conn.send(txt);
   log(`😊 Me: ${txt}`);
   e.target.reset();
 });
 
-/* ---------- 6. Tiny logger ---------- */
-function log(text){
-  logBox.textContent += text + '\n';
-  logBox.scrollTop    = logBox.scrollHeight;
-}
+function log(t){ logBox.textContent += t + '\n'; logBox.scrollTop = logBox.scrollHeight; }
 </script>
 </body>
 </html>
