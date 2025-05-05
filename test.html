@@ -1,113 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<title>GitHub Pages P2P Chat – PeerJS 1.5.x</title>
+<meta charset="utf-8">
+<title>NetplayJS demo – GitHub Pages</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  body{font-family:sans-serif;max-width:560px;margin:40px auto;padding:0 1rem}
-  #log{border:1px solid #ccc;height:240px;overflow-y:auto;padding:8px;margin:8px 0;white-space:pre-wrap;background:#fafafa}
-  #controls>*{margin:.4rem 0}
-  #remote-id{width:100%}
+  body{font-family:sans-serif;text-align:center;margin:2rem}
+  canvas{border:1px solid #666}
 </style>
-<!-- Pin the exact version so a future update can’t break your page -->
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+<!-- NetplayJS v0.4.1 from the official CDN -->
+<script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js"
+        integrity="sha384-6Yb8LWAT488jwK+nIjvD4S5/poq1Xn69NYjH1RXKHoaUOaFJrKQ1rfGQgKm8oQjX"
+        crossorigin="anonymous"></script>
 </head>
 <body>
-<h2>Peer‑to‑Peer chat test</h2>
-
-<p>Your ID: <strong id="my-id">…</strong></p>
-
-<div id="controls">
-  <label>
-    Connect to peer ID:
-    <input id="remote-id" placeholder="paste partner’s ID">
-  </label>
-  <button id="btn-connect" disabled>Connect</button>
-</div>
-
-<div id="status">Status: <em>initialising…</em></div>
-
-<div id="log"></div>
-
-<form id="form-msg" style="display:none">
-  <input id="msg" autocomplete="off" placeholder="type message" style="width:75%">
-  <button>Send</button>
-</form>
+<h2>Two‑player squares</h2>
+<p>When the lobby box appears choose “<em>Create game</em>” in one tab and “<em>Join</em>” in the other.</p>
 
 <script>
-/* ───────────────── 1.  Peer setup ───────────────── */
-const peer = new Peer({
-  debug : 3,                                       // verbose console logs
-  config: {                                        // STUN first; add TURN later if needed
-    iceServers: [ { urls: 'stun:stun.l.google.com:19302' } ]
+/* ─────────────────────────  game class  ───────────────────────── */
+class SimpleGame extends netplayjs.Game {
+  constructor () {
+    super();
+    this.aPos = { x: 100, y: 150 };   // red square
+    this.bPos = { x: 500, y: 150 };   // blue square
   }
-});
 
-const $ = id => document.getElementById(id);
-const logBox = $('log');
-let   conn   = null;
+  /* 60 FPS game step – apply current input to state */
+  tick (playerInputs) {
+    for (const [player, input] of playerInputs.entries()) {
+      const v = input.arrowKeys();     // {x, y} in –1…1
+      const pos = player.getID() === 0 ? this.aPos : this.bPos;
+      pos.x += v.x * 5;
+      pos.y -= v.y * 5;
+    }
+  }
 
-/* ───────────────── 2.  Bootstrap after Peer‑Server handshake ───────────────── */
-peer.on('open', id => {
-  $('my-id').textContent   = id;
-  $('status').textContent  = 'Status: waiting…';
-  $('btn-connect').disabled = false;              // user can now press “Connect”
-  console.info('✔️  Peer socket open – ready, id =', id);
-});
+  /* draw current state to the provided canvas */
+  draw (canvas) {
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#000';                       // background
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-/* ───────────────── 3.  Diagnostic helpers ───────────────── */
-peer.on('error',   e => { console.error(e);  log(`⚠️ ${e.type}: ${e.message}`); });
-peer.on('disconnected',  ()=> log('⚠️ lost connection to signalling server'));
-peer.on('close',         ()=> log('⚠️ peer instance shut down'));
+    ctx.fillStyle = '#e74c3c';                    // player 0
+    ctx.fillRect(this.aPos.x - 6, this.aPos.y - 6, 12, 12);
 
-/* ───────────────── 4.  Incoming connection ───────────────── */
-peer.on('connection', c => {
-  if (conn) c.close();                            // only one chat at a time
-  setUpConn(c);
-});
-
-/* ───────────────── 5.  Outgoing connection ───────────────── */
-$('btn-connect').onclick = () => {
-  const id = $('remote-id').value.trim();
-  if (!id) return alert('Enter a peer ID first!');
-  if (!peer.open) return alert('Still initialising, try again in a sec');
-  setUpConn(peer.connect(id));
-};
-
-/* ───────────────── 6.  Shared DataConnection plumbing ───────────────── */
-function setUpConn(c){
-  conn = c;
-  $('status').textContent = `Status: connecting to ${c.peer}…`;
-  c.on('open', () => {
-    $('status').textContent  = `Status: 🟢 connected to ${c.peer}`;
-    $('form-msg').style.display = '';
-    log(`🟢 Connected to ${c.peer}`);
-  });
-  c.on('data',  d => log(`👤 ${c.peer}: ${d}`));
-  c.on('close', () => {
-    log(`❌ Connection to ${c.peer} closed`);
-    $('status').textContent  = 'Status: disconnected';
-    $('form-msg').style.display = 'none';
-    conn = null;
-  });
+    ctx.fillStyle = '#3498db';                    // player 1
+    ctx.fillRect(this.bPos.x - 6, this.bPos.y - 6, 12, 12);
+  }
 }
 
-/* ───────────────── 7.  Send‑message form ───────────────── */
-$('form-msg').addEventListener('submit', e=>{
-  e.preventDefault();
-  const txt = $('msg').value.trim();
-  if (!txt || !conn?.open) return;
-  conn.send(txt);
-  log(`😊 Me: ${txt}`);
-  e.target.reset();
-});
+/* static config for NetplayJS */
+SimpleGame.timestep    = 1000 / 60;               // 60 FPS
+SimpleGame.canvasSize  = { width: 600, height: 300 };
 
-/* ───────────────── 8.  Tiny logger ───────────────── */
-function log(t){
-  logBox.textContent += t + '\n';
-  logBox.scrollTop    = logBox.scrollHeight;
-}
+/* kick things off with rollback net‑code + built‑in lobby UI */
+new netplayjs.RollbackWrapper(SimpleGame).start();
 </script>
 </body>
 </html>
