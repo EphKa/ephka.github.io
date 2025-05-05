@@ -2,86 +2,112 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Peer‑to‑Peer Chat (PeerJS)</title>
+<title>GitHub Pages P2P Chat – PeerJS 1.5.x</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  body{font-family:sans-serif;max-width:540px;margin:40px auto}
-  #log{border:1px solid #ccc;height:240px;overflow-y:auto;padding:8px;margin-bottom:8px;white-space:pre-wrap}
-  #controls > *{margin:4px 0}
+  body{font-family:sans-serif;max-width:560px;margin:40px auto;padding:0 1rem}
+  #log{border:1px solid #ccc;height:240px;overflow-y:auto;padding:8px;margin:8px 0;white-space:pre-wrap;background:#fafafa}
+  #controls>*{margin:.4rem 0}
+  #remote-id{width:100%}
 </style>
-
-<!-- exact version to avoid breaking changes -->
+<!-- Pin the exact version so a future update can’t break your page -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
-<h2>P2P Chat test</h2>
+<h2>Peer‑to‑Peer chat test</h2>
+
+<p>Your ID: <strong id="my-id">…</strong></p>
 
 <div id="controls">
-  <p>Your ID: <strong id="my-id">…</strong></p>
   <label>
     Connect to peer ID:
-    <input id="remote-id" placeholder="paste partner's ID" />
-    <button id="btn-connect">Connect</button>
+    <input id="remote-id" placeholder="paste partner’s ID">
   </label>
+  <button id="btn-connect" disabled>Connect</button>
 </div>
 
-<div id="status">Status: <em>waiting for connection…</em></div>
+<div id="status">Status: <em>initialising…</em></div>
+
 <div id="log"></div>
 
 <form id="form-msg" style="display:none">
-  <input id="msg" autocomplete="off" placeholder="type message" style="width:70%" />
+  <input id="msg" autocomplete="off" placeholder="type message" style="width:75%">
   <button>Send</button>
 </form>
 
 <script>
-/* ---------- 1. Create peer with debug + error handlers ---------- */
-const peer   = new Peer({ debug: 3 });    // ⚠️ new
-const logBox = document.getElementById('log');
-let   conn   = null;
-
-peer.on('open', id => document.getElementById('my-id').textContent = id);
-peer.on('error', err => {                 // ⚠️ new
-  console.error('PeerJS', err);
-  log('⚠️ ' + err.type + ': ' + err.message);
+/* ───────────────── 1.  Peer setup ───────────────── */
+const peer = new Peer({
+  debug : 3,                                       // verbose console logs
+  config: {                                        // STUN first; add TURN later if needed
+    iceServers: [ { urls: 'stun:stun.l.google.com:19302' } ]
+  }
 });
 
-/* ---------- 2. Incoming connection ---------- */
-peer.on('connection', c => { if (conn) c.close(); setup(c); });
+const $ = id => document.getElementById(id);
+const logBox = $('log');
+let   conn   = null;
 
-/* ---------- 3. Manual connect ---------- */
-document.getElementById('btn-connect').onclick = () => {
-  const id = document.getElementById('remote-id').value.trim();
+/* ───────────────── 2.  Bootstrap after Peer‑Server handshake ───────────────── */
+peer.on('open', id => {
+  $('my-id').textContent   = id;
+  $('status').textContent  = 'Status: waiting…';
+  $('btn-connect').disabled = false;              // user can now press “Connect”
+  console.info('✔️  Peer socket open – ready, id =', id);
+});
+
+/* ───────────────── 3.  Diagnostic helpers ───────────────── */
+peer.on('error',   e => { console.error(e);  log(`⚠️ ${e.type}: ${e.message}`); });
+peer.on('disconnected',  ()=> log('⚠️ lost connection to signalling server'));
+peer.on('close',         ()=> log('⚠️ peer instance shut down'));
+
+/* ───────────────── 4.  Incoming connection ───────────────── */
+peer.on('connection', c => {
+  if (conn) c.close();                            // only one chat at a time
+  setUpConn(c);
+});
+
+/* ───────────────── 5.  Outgoing connection ───────────────── */
+$('btn-connect').onclick = () => {
+  const id = $('remote-id').value.trim();
   if (!id) return alert('Enter a peer ID first!');
-  setup(peer.connect(id));
+  if (!peer.open) return alert('Still initialising, try again in a sec');
+  setUpConn(peer.connect(id));
 };
 
-/* ---------- utilities ---------- */
-function setup(c){
+/* ───────────────── 6.  Shared DataConnection plumbing ───────────────── */
+function setUpConn(c){
   conn = c;
-  document.getElementById('status').textContent = `Status: connecting to ${c.peer}…`;
+  $('status').textContent = `Status: connecting to ${c.peer}…`;
   c.on('open', () => {
-    document.getElementById('status').textContent = `Status: connected to ${c.peer}`;
-    document.getElementById('form-msg').style.display = '';
+    $('status').textContent  = `Status: 🟢 connected to ${c.peer}`;
+    $('form-msg').style.display = '';
     log(`🟢 Connected to ${c.peer}`);
   });
   c.on('data',  d => log(`👤 ${c.peer}: ${d}`));
   c.on('close', () => {
     log(`❌ Connection to ${c.peer} closed`);
-    document.getElementById('status').textContent = 'Status: disconnected';
-    document.getElementById('form-msg').style.display = 'none';
+    $('status').textContent  = 'Status: disconnected';
+    $('form-msg').style.display = 'none';
     conn = null;
   });
 }
 
-document.getElementById('form-msg').addEventListener('submit', e=>{
+/* ───────────────── 7.  Send‑message form ───────────────── */
+$('form-msg').addEventListener('submit', e=>{
   e.preventDefault();
-  const txt = msg.value;
+  const txt = $('msg').value.trim();
   if (!txt || !conn?.open) return;
   conn.send(txt);
   log(`😊 Me: ${txt}`);
   e.target.reset();
 });
 
-function log(t){ logBox.textContent += t + '\n'; logBox.scrollTop = logBox.scrollHeight; }
+/* ───────────────── 8.  Tiny logger ───────────────── */
+function log(t){
+  logBox.textContent += t + '\n';
+  logBox.scrollTop    = logBox.scrollHeight;
+}
 </script>
 </body>
 </html>
