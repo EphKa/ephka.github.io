@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8"/>
 
-<!-- ── Allow WebRTC & TURN relay despite Neocities / GitHub Pages CSP ── -->
+<!--  ── Allow WebRTC despite GitHub Pages CSP ──  -->
 <meta http-equiv="Content-Security-Policy"
       content="
         default-src 'self';
         connect-src 'self' stun: turn: turns: wss: https: data: blob:;
-        script-src 'self';
-        object-src 'none';"/>
+        script-src  'self';
+        object-src  'none';"/>
 
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Grid Territory Game</title>
@@ -41,21 +41,21 @@
 </head>
 <body>
 
-<!-- ── MAIN MENU ─────────────────────────────────────────────────────── -->
+<!--  ── MAIN MENU ─────────────────────────────────────────────────── -->
 <div id="menuScreen" class="screen active">
   <h2>Grid Territory Game</h2>
   <button id="localBtn">Local Play</button>
   <button id="multiBtn">Multiplayer</button>
 </div>
 
-<!-- ── MULTIPLAYER SETUP ─────────────────────────────────────────────── -->
+<!--  ── MULTIPLAYER SETUP ────────────────────────────────────────── -->
 <div id="multiplayerScreen" class="screen">
   <h2>Multiplayer Mode</h2>
   <button id="hostBtn">Host Game</button>
   <button id="showJoinBtn">Join Game</button>
   <button id="backBtn">Back</button>
 
-  <!-- ── Host copies Offer, pastes Answer ── -->
+  <!-- Host side -->
   <div id="hostPanel">
     <p><strong>1.</strong> Click <em>Create Offer</em> and send the code to your friend.</p>
     <button id="createOfferBtn">Create Offer</button>
@@ -68,7 +68,7 @@
     <p>Status: <span id="hostStatus">Idle</span></p>
   </div>
 
-  <!-- ── Joiner pastes Offer, copies Answer ── -->
+  <!-- Joiner side -->
   <div id="joinPanel">
     <p><strong>1.</strong> Paste the Host’s Offer code and click <em>Generate Answer</em>.</p>
     <textarea id="offerIn" rows="6" placeholder="Paste Offer code here…"></textarea>
@@ -81,7 +81,7 @@
   </div>
 </div>
 
-<!-- ── GAME SCREEN ──────────────────────────────────────────────────── -->
+<!--  ── GAME SCREEN ─────────────────────────────────────────────── -->
 <div id="gameScreen" class="screen">
   <div id="left">
     <h2>Grid Territory</h2>
@@ -104,20 +104,23 @@
 </div>
 
 <script>
-/* ────────────────────────────────────────────────────────────────
-     Helper shortcuts & navigation
------------------------------------------------------------------*/
+/* Put everything inside DOMContentLoaded so elements always exist */
+document.addEventListener('DOMContentLoaded',()=>{
+
+/* ── Helper shortcuts & navigation ────────────────────────────── */
 const $=id=>document.getElementById(id);
 const menuScreen=$('menuScreen'),multiScreen=$('multiplayerScreen'),gameScreen=$('gameScreen');
 const showScreen=s=>[menuScreen,multiScreen,gameScreen].forEach(x=>x.classList.toggle('active',x===s));
 
-$('localBtn').onclick=modeLocal;
-$('multiBtn').onclick=()=>showScreen(multiScreen);
-$('backBtn').onclick =()=>showScreen(menuScreen);
+/* Make sure the menu is visible first */
+showScreen(menuScreen);
 
-/* ────────────────────────────────────────────────────────────────
-     WebRTC plumbing (manual copy‑/‑paste signalling)
------------------------------------------------------------------*/
+/* Buttons */
+$('localBtn').onclick   = modeLocal;
+$('multiBtn').onclick   = ()=>showScreen(multiScreen);
+$('backBtn').onclick    = ()=>showScreen(menuScreen);
+
+/* ── WebRTC plumbing (manual copy‑paste signalling) ───────────── */
 const iceServers=[
   {urls:'stun:stun.l.google.com:19302'},
   {urls:[
@@ -129,7 +132,6 @@ const iceServers=[
 
 let pc=null, dataConn=null, isHost=false, isMultiplayer=false, localPlayer=1;
 
-/* Base64‑encode / decode the SDP JSON to keep text area short & safe */
 const encode = obj => btoa(JSON.stringify(obj));
 const decode = str => JSON.parse(atob(str));
 
@@ -159,8 +161,7 @@ $('setAnswerBtn').onclick= async ()=>{
   try{
     const ansTxt=$('answerIn').value.trim();
     if(!ansTxt) return;
-    const answer = new RTCSessionDescription(decode(ansTxt));
-    await pc.setRemoteDescription(answer);
+    await pc.setRemoteDescription(new RTCSessionDescription(decode(ansTxt)));
     $('hostStatus').textContent='Connected!';
   }catch(e){
     $('hostStatus').textContent='Error: '+e;
@@ -202,7 +203,7 @@ $('genAnswerBtn').onclick=async ()=>{
 /****************** Shared helpers ************************************/
 function resetPeer(){
   if(pc){pc.close();}
-  pc=new RTCPeerConnection({iceServers,iceCandidatePoolSize:0});
+  pc=new RTCPeerConnection({iceServers});
   pc.oniceconnectionstatechange=()=>console.log('ICE state:',pc.iceConnectionState);
 }
 function waitIceGathering(){
@@ -211,9 +212,8 @@ function waitIceGathering(){
     pc.onicegatheringstatechange=()=>pc.iceGatheringState==='complete'&&res();
   });
 }
-/* Data‑channel wrappers mimicking the old PeerJS object */
 function setupDataChannel(){
-  dataConn.onopen = ()=>{ console.log('DataChannel open'); finishHandshake(); };
+  dataConn.onopen = ()=>{ finishHandshake(); };
   dataConn.onmessage = e=> handleDataMessage(JSON.parse(e.data));
 }
 function sendMessage(obj){
@@ -222,13 +222,11 @@ function sendMessage(obj){
 function finishHandshake(){
   isMultiplayer=true;
   localPlayer=isHost?1:2;
-  beginGame();               // show board, etc.
+  beginGame();
   $('lobbyStatus').textContent='Connected!';
 }
 
-/* ────────────────────────────────────────────────────────────────
-     Chat UI
------------------------------------------------------------------*/
+/* ── Chat UI ──────────────────────────────────────────────────── */
 $('sendChat').onclick=()=>{
   const txt=$('chatInput').value.trim();if(!txt)return;
   appendChat(localPlayer,txt);
@@ -242,9 +240,7 @@ function appendChat(p,txt){
   $('chatLog').scrollTop=$('chatLog').scrollHeight;
 }
 
-/* ────────────────────────────────────────────────────────────────
-     Game state (unchanged from your version)
------------------------------------------------------------------*/
+/* ── Game state (same mechanics) ──────────────────────────────── */
 const gridSize=21,cellPx=20,canvas=$('gameCanvas'),ctx=canvas.getContext('2d');
 let turn=1,gameStarted=false,lines,nodes,horiz,vert,cells,clickStart=null,hoverEnd=null;
 
@@ -258,12 +254,17 @@ function initGameState(){
   vert  = Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
   cells = Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
   clickStart=hoverEnd=null;
-  gameStarted=!isMultiplayer;
-  $('info').textContent=gameStarted?`Turn: Player ${turn}`:'Waiting to start';
+  gameStarted=false;                                   //  <── starts false
+  $('info').textContent='Game not started';
 }
-function beginGame(){initGameState();showScreen(gameScreen);draw();}
+function beginGame(){
+  initGameState();
+  gameStarted=true;
+  showScreen(gameScreen);
+  draw();
+}
 
-/* ── Board helpers (same as before) ────────────────────────────── */
+/* ── Board helpers, occupy, fillTerritories, draw …  (unchanged) ── */
 const isStraight3=(sx,sy,ex,ey)=>{const dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);return(dx===3&&dy===0)||(dx===0&&dy===3);};
 const interior=(sx,sy,ex,ey)=>sx===ex?[{x:sx,y:Math.min(sy,ey)+1},{x:sx,y:Math.min(sy,ey)+2}]
                                  :[{x:Math.min(sx,ex)+1,y:sy},{x:Math.min(sx,ex)+2,y:sy}];
@@ -297,7 +298,6 @@ function fillTerritories(p){
     if(!visited[y][x]&&cells[y][x]===0)cells[y][x]=p;
 }
 
-/* ── Drawing ───────────────────────────────────────────────────── */
 function draw(){
   ctx.clearRect(0,0,420,420);
   ctx.strokeStyle='#ddd';ctx.lineWidth=1;
@@ -313,7 +313,7 @@ function draw(){
   if(clickStart&&hoverEnd){
     ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle='gray';
     ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y));ctx.stroke();ctx.setLineDash([]);}
-  $('info').textContent=gameStarted?`Turn: Player ${turn}`:'Waiting to start';
+  $('info').textContent=gameStarted?`Turn: Player ${turn}`:'Game not started';
 }
 
 /* ── Canvas input ─────────────────────────────────────────────── */
@@ -341,21 +341,23 @@ canvas.addEventListener('click',e=>{
   clickStart=hoverEnd=null;
 });
 
-/* ── Message handler ──────────────────────────────────────────── */
+/* ── Incoming network messages ─────────────────────────────────── */
 function handleDataMessage(msg){
   if(msg.type==='move'){occupy(msg.sx,msg.sy,msg.ex,msg.ey,msg.player);turn=msg.player===1?2:1;draw();}
   else if(msg.type==='chat')appendChat(msg.from,msg.text);
 }
 
-/* ── Local two‑player (same keyboard & mouse) ─────────────────── */
+/* ── Local two‑player on same machine ─────────────────────────── */
 function modeLocal(){
   isMultiplayer=false;localPlayer=1;
-  initGameState();showScreen(gameScreen);draw();
+  beginGame();
   $('lobbyStatus').textContent='Local two‑player on same PC';
 }
 
 /* ── Kick things off ──────────────────────────────────────────── */
 initGameState();
+
+}); /* end DOMContentLoaded */
 </script>
 </body>
 </html>
