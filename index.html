@@ -2,250 +2,43 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-
-<!--  ── Allow WebRTC despite GitHub Pages CSP ──  -->
-<meta http-equiv="Content-Security-Policy"
-      content="
-        default-src 'self';
-        connect-src 'self' stun: turn: turns: wss: https: data: blob:;
-        script-src  'self';
-        object-src  'none';"/>
-
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Grid Territory Game</title>
+<title>Grid Territory — local play</title>
 
 <style>
- body,html{margin:0;padding:0;height:100%;font-family:sans-serif}
- .screen{display:none;width:100%;height:100%}
- .active{display:flex}
- #menuScreen,#multiplayerScreen{flex-direction:column;align-items:center;justify-content:center}
- button{margin:8px;padding:12px 24px;font-size:1rem;cursor:pointer}
- textarea,input{font-family:monospace}
- #hostPanel,#joinPanel{display:none;flex-direction:column;align-items:center;margin-top:16px;width:90%;max-width:520px}
- #hostPanel p,#joinPanel p{margin:4px 0}
- #hostPanel textarea,#joinPanel textarea,
- #hostPanel input,#joinPanel input{width:100%;padding:8px;box-sizing:border-box}
- #gameScreen{display:flex}
- #left{flex:2;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f0f0f0}
- #right{flex:1;overflow:auto;padding:16px;box-sizing:border-box}
- h2{margin:8px 0}
- #game-container{position:relative;width:420px;height:420px}
- canvas{position:absolute;top:0;left:0;background:#fff}
- #info{margin-top:8px;font-weight:600}
- #debug{margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap;width:90%}
- #lobby{margin-bottom:16px}
- #chatLog{height:120px;overflow-y:auto;border:1px solid #ccc;padding:4px;background:#fff}
- #chatContainer input{width:70%;padding:4px}
- #chatContainer button{width:25%;padding:4px}
+  body,html{margin:0;padding:0;height:100%;font-family:sans-serif}
+  #wrapper{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
+  h2{margin:8px 0}
+  #game-container{position:relative;width:420px;height:420px}
+  canvas{position:absolute;top:0;left:0;background:#fff}
+  #info{margin-top:8px;font-weight:600}
+  #debug{margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap}
+  button{margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer}
 </style>
 </head>
 <body>
-
-<!--  ── MAIN MENU ─────────────────────────────────────────────────── -->
-<div id="menuScreen" class="screen active">
-  <h2>Grid Territory Game</h2>
-  <button id="localBtn">Local Play</button>
-  <button id="multiBtn">Multiplayer</button>
-</div>
-
-<!--  ── MULTIPLAYER SETUP ────────────────────────────────────────── -->
-<div id="multiplayerScreen" class="screen">
-  <h2>Multiplayer Mode</h2>
-  <button id="hostBtn">Host Game</button>
-  <button id="showJoinBtn">Join Game</button>
-  <button id="backBtn">Back</button>
-
-  <!-- Host side -->
-  <div id="hostPanel">
-    <p><strong>1.</strong> Click <em>Create Offer</em> and send the code to your friend.</p>
-    <button id="createOfferBtn">Create Offer</button>
-    <textarea id="offerOut" rows="6" readonly placeholder="Offer will appear here…"></textarea>
-
-    <p style="margin-top:12px"><strong>2.</strong> Paste the friend’s Answer code here and click <em>Set Remote Answer</em>.</p>
-    <textarea id="answerIn" rows="6" placeholder="Paste Answer code here…"></textarea>
-    <button id="setAnswerBtn">Set Remote Answer</button>
-
-    <p>Status: <span id="hostStatus">Idle</span></p>
-  </div>
-
-  <!-- Joiner side -->
-  <div id="joinPanel">
-    <p><strong>1.</strong> Paste the Host’s Offer code and click <em>Generate Answer</em>.</p>
-    <textarea id="offerIn" rows="6" placeholder="Paste Offer code here…"></textarea>
-    <button id="genAnswerBtn">Generate Answer</button>
-
-    <p><strong>2.</strong> Copy this Answer code and send it back to the Host.</p>
-    <textarea id="answerOut" rows="6" readonly placeholder="Answer will appear here…"></textarea>
-
-    <p>Status: <span id="joinStatus">Idle</span></p>
-  </div>
-</div>
-
-<!--  ── GAME SCREEN ─────────────────────────────────────────────── -->
-<div id="gameScreen" class="screen">
-  <div id="left">
-    <h2>Grid Territory</h2>
-    <div id="game-container"><canvas id="gameCanvas" width="420" height="420"></canvas></div>
-    <div id="info">Game not started</div>
-    <div id="debug"></div>
-  </div>
-  <div id="right">
-    <div id="lobby">
-      <h4>Lobby</h4>
-      <div id="lobbyStatus">Waiting…</div>
-    </div>
-    <div id="chatContainer">
-      <h4>Chat</h4>
-      <div id="chatLog"></div>
-      <input id="chatInput" placeholder="Type…"/>
-      <button id="sendChat">Send</button>
-    </div>
-  </div>
+<div id="wrapper">
+  <h2>Grid Territory (local two‑player)</h2>
+  <div id="game-container"><canvas id="gameCanvas" width="420" height="420"></canvas></div>
+  <div id="info">Game not started</div>
+  <div id="debug"></div>
+  <button id="restartBtn">Restart Game</button>
 </div>
 
 <script>
-/* Put everything inside DOMContentLoaded so elements always exist */
 document.addEventListener('DOMContentLoaded',()=>{
 
-/* ── Helper shortcuts & navigation ────────────────────────────── */
+/* ── Helper ─────────────────────────────────────────────── */
 const $=id=>document.getElementById(id);
-const menuScreen=$('menuScreen'),multiScreen=$('multiplayerScreen'),gameScreen=$('gameScreen');
-const showScreen=s=>[menuScreen,multiScreen,gameScreen].forEach(x=>x.classList.toggle('active',x===s));
-
-/* Make sure the menu is visible first */
-showScreen(menuScreen);
-
-/* Buttons */
-$('localBtn').onclick   = modeLocal;
-$('multiBtn').onclick   = ()=>showScreen(multiScreen);
-$('backBtn').onclick    = ()=>showScreen(menuScreen);
-
-/* ── WebRTC plumbing (manual copy‑paste signalling) ───────────── */
-const iceServers=[
-  {urls:'stun:stun.l.google.com:19302'},
-  {urls:[
-    'turn:openrelay.metered.ca:80',
-    'turn:openrelay.metered.ca:443',
-    'turns:openrelay.metered.ca:443?transport=tcp'
-  ],username:'openrelayproject',credential:'openrelayproject'}
-];
-
-let pc=null, dataConn=null, isHost=false, isMultiplayer=false, localPlayer=1;
-
-const encode = obj => btoa(JSON.stringify(obj));
-const decode = str => JSON.parse(atob(str));
-
-/****************** HOST FLOW ******************************************/
-$('hostBtn').onclick=()=>{
-  isHost=true;
-  $('hostPanel').style.display='flex';
-  $('joinPanel').style.display='none';
-  showScreen(multiScreen);
-  $('hostStatus').textContent='Idle';
-};
-
-$('createOfferBtn').onclick= async ()=>{
-  resetPeer();
-  dataConn = pc.createDataChannel('game');
-  setupDataChannel();
-
-  const offer=await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  await waitIceGathering();
-
-  $('offerOut').value = encode(pc.localDescription);
-  $('hostStatus').textContent='Offer created – send it to your friend';
-};
-
-$('setAnswerBtn').onclick= async ()=>{
-  try{
-    const ansTxt=$('answerIn').value.trim();
-    if(!ansTxt) return;
-    await pc.setRemoteDescription(new RTCSessionDescription(decode(ansTxt)));
-    $('hostStatus').textContent='Connected!';
-  }catch(e){
-    $('hostStatus').textContent='Error: '+e;
-  }
-};
-
-/****************** JOIN FLOW ******************************************/
-$('showJoinBtn').onclick=()=>{
-  isHost=false;
-  $('joinPanel').style.display='flex';
-  $('hostPanel').style.display='none';
-  showScreen(multiScreen);
-  $('joinStatus').textContent='Idle';
-};
-
-$('genAnswerBtn').onclick=async ()=>{
-  try{
-    const offTxt=$('offerIn').value.trim();
-    if(!offTxt) return;
-    resetPeer();
-    await pc.setRemoteDescription(new RTCSessionDescription(decode(offTxt)));
-
-    pc.ondatachannel = ev=>{
-      dataConn = ev.channel;
-      setupDataChannel();
-    };
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await waitIceGathering();
-
-    $('answerOut').value = encode(pc.localDescription);
-    $('joinStatus').textContent='Answer generated – send it back to the host';
-  }catch(e){
-    $('joinStatus').textContent='Error: '+e;
-  }
-};
-
-/****************** Shared helpers ************************************/
-function resetPeer(){
-  if(pc){pc.close();}
-  pc=new RTCPeerConnection({iceServers});
-  pc.oniceconnectionstatechange=()=>console.log('ICE state:',pc.iceConnectionState);
-}
-function waitIceGathering(){
-  return new Promise(res=>{
-    if(pc.iceGatheringState==='complete') return res();
-    pc.onicegatheringstatechange=()=>pc.iceGatheringState==='complete'&&res();
-  });
-}
-function setupDataChannel(){
-  dataConn.onopen = ()=>{ finishHandshake(); };
-  dataConn.onmessage = e=> handleDataMessage(JSON.parse(e.data));
-}
-function sendMessage(obj){
-  if(dataConn && dataConn.readyState==='open') dataConn.send(JSON.stringify(obj));
-}
-function finishHandshake(){
-  isMultiplayer=true;
-  localPlayer=isHost?1:2;
-  beginGame();
-  $('lobbyStatus').textContent='Connected!';
-}
-
-/* ── Chat UI ──────────────────────────────────────────────────── */
-$('sendChat').onclick=()=>{
-  const txt=$('chatInput').value.trim();if(!txt)return;
-  appendChat(localPlayer,txt);
-  sendMessage({type:'chat',from:localPlayer,text:txt});
-  $('chatInput').value='';
-};
-function appendChat(p,txt){
-  const d=document.createElement('div');
-  d.innerHTML=`<strong>P${p}:</strong> ${txt}`;
-  $('chatLog').appendChild(d);
-  $('chatLog').scrollTop=$('chatLog').scrollHeight;
-}
-
-/* ── Game state (same mechanics) ──────────────────────────────── */
 const gridSize=21,cellPx=20,canvas=$('gameCanvas'),ctx=canvas.getContext('2d');
-let turn=1,gameStarted=false,lines,nodes,horiz,vert,cells,clickStart=null,hoverEnd=null;
 
-const px2g=px=>Math.round(px/cellPx),g2px=g=>g*cellPx;
+let turn,lines,nodes,horiz,vert,cells,clickStart=null,hoverEnd=null,gameStarted=false;
 
+/* ── Utility mapping between grid coords and pixels ─────── */
+const px2g=px=>Math.round(px/cellPx);
+const g2px=g=>g*cellPx;
+
+/* ── Game initialisation / reset ─────────────────────────── */
 function initGameState(){
   turn=1;
   lines=[];
@@ -254,25 +47,31 @@ function initGameState(){
   vert  = Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
   cells = Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
   clickStart=hoverEnd=null;
-  gameStarted=false;                                   //  <── starts false
-  $('info').textContent='Game not started';
-}
-function beginGame(){
-  initGameState();
   gameStarted=true;
-  showScreen(gameScreen);
+  $('debug').textContent='';
+  $('info').textContent='Turn: Player 1';
   draw();
 }
+$('restartBtn').onclick=initGameState;
+initGameState();   // start immediately on load
 
-/* ── Board helpers, occupy, fillTerritories, draw …  (unchanged) ── */
-const isStraight3=(sx,sy,ex,ey)=>{const dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);return(dx===3&&dy===0)||(dx===0&&dy===3);};
-const interior=(sx,sy,ex,ey)=>sx===ex?[{x:sx,y:Math.min(sy,ey)+1},{x:sx,y:Math.min(sy,ey)+2}]
-                                 :[{x:Math.min(sx,ex)+1,y:sy},{x:Math.min(sx,ex)+2,y:sy}];
-function noCross(sx,sy,ex,ey){const ni=interior(sx,sy,ex,ey);
+/* ── Core geometric helpers (unchanged) ─────────────────── */
+const isStraight3=(sx,sy,ex,ey)=>{
+  const dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);
+  return (dx===3&&dy===0)||(dx===0&&dy===3);
+};
+const interior=(sx,sy,ex,ey)=>sx===ex?
+  [{x:sx,y:Math.min(sy,ey)+1},{x:sx,y:Math.min(sy,ey)+2}]:
+  [{x:Math.min(sx,ex)+1,y:sy},{x:Math.min(sx,ex)+2,y:sy}];
+
+function noCross(sx,sy,ex,ey){
+  const ni=interior(sx,sy,ex,ey);
   return !lines.some(ln=>interior(ln.sx,ln.sy,ln.ex,ln.ey)
-    .some(a=>ni.some(b=>a.x===b.x&&a.y===b.y))); }
+    .some(a=>ni.some(b=>a.x===b.x&&a.y===b.y)));
+}
 const touches=(sx,sy,ex,ey)=>lines.length===0||nodes[sy][sx]||nodes[ey][ex];
 
+/* ── Occupy, territory filling, drawing ─────────────────── */
 function occupy(sx,sy,ex,ey,p){
   lines.push({sx,sy,ex,ey,player:p});
   if(sx===ex){const x=sx,y0=Math.min(sy,ey);
@@ -281,6 +80,7 @@ function occupy(sx,sy,ex,ey,p){
     for(let d=0;d<3;d++){horiz[y][x0+d]=true;nodes[y][x0+d]=nodes[y][x0+1+d]=true;}}
   fillTerritories(p);
 }
+
 function fillTerritories(p){
   const visited=Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(false));
   const q=[];
@@ -288,74 +88,84 @@ function fillTerritories(p){
     [[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]]
     .forEach(([x,y])=>{if(!visited[y][x]){visited[y][x]=true;q.push({x,y});}});
   const pass=(x,y,nx,ny)=>x===nx?!horiz[Math.min(y,ny)+1][x]:!vert[y][Math.min(x,nx)+1];
-  while(q.length){const{ x,y}=q.shift();
+  while(q.length){
+    const{ x,y}=q.shift();
     [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
       const nx=x+dx,ny=y+dy;
       if(nx>=0&&nx<gridSize-1&&ny>=0&&ny<gridSize-1&&!visited[ny][nx]&&pass(x,y,nx,ny)){
         visited[ny][nx]=true;q.push({x:nx,y:ny});}});
   }
-  for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
-    if(!visited[y][x]&&cells[y][x]===0)cells[y][x]=p;
+  for(let y=0;y<gridSize-1;y++)
+    for(let x=0;x<gridSize-1;x++)
+      if(!visited[y][x]&&cells[y][x]===0)cells[y][x]=p;
 }
 
 function draw(){
   ctx.clearRect(0,0,420,420);
+
+  /* grid */
   ctx.strokeStyle='#ddd';ctx.lineWidth=1;
-  for(let i=0;i<=gridSize;i++){const p=g2px(i);
+  for(let i=0;i<=gridSize;i++){
+    const p=g2px(i);
     ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,420);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(420,p);ctx.stroke();}
+    ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(420,p);ctx.stroke();
+  }
+
+  /* filled cells */
   for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
-    if(cells[y][x]>0){ctx.globalAlpha=.2;ctx.fillStyle=cells[y][x]==1?'red':'blue';
-      ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;}
+    if(cells[y][x]>0){
+      ctx.globalAlpha=.2;ctx.fillStyle=cells[y][x]==1?'red':'blue';
+      ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;
+    }
+
+  /* lines */
   for(const ln of lines){
     ctx.beginPath();ctx.lineWidth=4;ctx.strokeStyle=ln.player==1?'red':'blue';
-    ctx.moveTo(g2px(ln.sx),g2px(ln.sy));ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();}
+    ctx.moveTo(g2px(ln.sx),g2px(ln.sy));ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();
+  }
+
+  /* drag preview */
   if(clickStart&&hoverEnd){
     ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle='gray';
-    ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y));ctx.stroke();ctx.setLineDash([]);}
-  $('info').textContent=gameStarted?`Turn: Player ${turn}`:'Game not started';
+    ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y));
+    ctx.stroke();ctx.setLineDash([]);
+  }
 }
 
-/* ── Canvas input ─────────────────────────────────────────────── */
+/* ── Canvas input ─────────────────────────────────────────── */
 canvas.addEventListener('mousemove',e=>{
   if(!clickStart||!gameStarted)return;
   const r=canvas.getBoundingClientRect();
-  hoverEnd={x:px2g(e.clientX-r.left),y:px2g(e.clientY-r.top)}; draw();
+  hoverEnd={x:px2g(e.clientX-r.left),y:px2g(e.clientY-r.top)};
+  draw();
 });
 canvas.addEventListener('click',e=>{
   if(!gameStarted)return;
-  if(isMultiplayer&&localPlayer!==turn){$('debug').textContent='Not your turn';return;}
   const r=canvas.getBoundingClientRect();
   const gx=px2g(e.clientX-r.left),gy=px2g(e.clientY-r.top);
+
+  /* first click = anchor point */
   if(!clickStart){clickStart={x:gx,y:gy};hoverEnd=null;return;}
+
+  /* second click = attempt line */
   const {x:sx,y:sy}=clickStart;
   const {x:ex,y:ey}=hoverEnd||{x:gx,y:gy};
-  if(!isStraight3(sx,sy,ex,ey)){$('debug').textContent='Must be straight length 3';}
-  else if(!touches(sx,sy,ex,ey)){$('debug').textContent='Must touch existing';}
-  else if(!noCross(sx,sy,ex,ey)){$('debug').textContent='Illegal crossing';}
-  else{
+
+  if(!isStraight3(sx,sy,ex,ey)){
+    $('debug').textContent='Line must be straight and exactly 3 cells long.';
+  }else if(!touches(sx,sy,ex,ey)){
+    $('debug').textContent='Line must touch an existing node.';
+  }else if(!noCross(sx,sy,ex,ey)){
+    $('debug').textContent='Line would illegally cross another.';
+  }else{
     occupy(sx,sy,ex,ey,turn);
-    sendMessage({type:'move',sx,sy,ex,ey,player:turn});
-    turn=turn===1?2:1;draw();$('debug').textContent='';
+    turn=turn===1?2:1;
+    $('info').textContent=`Turn: Player ${turn}`;
+    $('debug').textContent='';
   }
   clickStart=hoverEnd=null;
+  draw();
 });
-
-/* ── Incoming network messages ─────────────────────────────────── */
-function handleDataMessage(msg){
-  if(msg.type==='move'){occupy(msg.sx,msg.sy,msg.ex,msg.ey,msg.player);turn=msg.player===1?2:1;draw();}
-  else if(msg.type==='chat')appendChat(msg.from,msg.text);
-}
-
-/* ── Local two‑player on same machine ─────────────────────────── */
-function modeLocal(){
-  isMultiplayer=false;localPlayer=1;
-  beginGame();
-  $('lobbyStatus').textContent='Local two‑player on same PC';
-}
-
-/* ── Kick things off ──────────────────────────────────────────── */
-initGameState();
 
 }); /* end DOMContentLoaded */
 </script>
