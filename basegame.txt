@@ -1,173 +1,265 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Grid Territory — local play</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Grid Territory — Local Two-Player</title>
 
-<style>
-  body,html{margin:0;padding:0;height:100%;font-family:sans-serif}
-  #wrapper{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
-  h2{margin:8px 0}
-  #game-container{position:relative;width:420px;height:420px}
-  canvas{position:absolute;top:0;left:0;background:#fff}
-  #info{margin-top:8px;font-weight:600}
-  #debug{margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap}
-  button{margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer}
-</style>
+  <style>
+    body,html { margin:0; padding:0; height:100%; font-family:sans-serif; }
+    #wrapper {
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      height:100%;
+    }
+    h2 { margin:8px 0; }
+    #game-container { position:relative; width:420px; height:420px; }
+    canvas { position:absolute; top:0; left:0; background:#fff; }
+    #info { margin-top:8px; font-weight:600; }
+    #debug { margin-top:8px; font-size:.8em; color:#a00; white-space:pre-wrap; }
+    button {
+      margin-top:12px;
+      padding:8px 20px;
+      font-size:1rem;
+      cursor:pointer;
+    }
+  </style>
 </head>
 <body>
-<div id="wrapper">
-  <h2>Grid Territory (local two‑player)</h2>
-  <div id="game-container"><canvas id="gameCanvas" width="420" height="420"></canvas></div>
-  <div id="info">Game not started</div>
-  <div id="debug"></div>
-  <button id="restartBtn">Restart Game</button>
-</div>
+  <div id="wrapper">
+    <h2>Grid Territory — Local Two-Player</h2>
+    <div id="game-container">
+      <canvas id="gameCanvas" width="420" height="420"></canvas>
+    </div>
+    <div id="info">Game not started</div>
+    <div id="debug"></div>
+    <button id="restartBtn">Restart Game</button>
+  </div>
 
-<script>
-document.addEventListener('DOMContentLoaded',()=>{
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const $ = id => document.getElementById(id);
+    const gridSize = 21, cellPx = 20;
+    const canvas = $('gameCanvas'), ctx = canvas.getContext('2d');
 
-/* ── Helper ─────────────────────────────────────────────── */
-const $=id=>document.getElementById(id);
-const gridSize=21,cellPx=20,canvas=$('gameCanvas'),ctx=canvas.getContext('2d');
+    let turn, lines, nodes, horiz, vert, cells;
+    let clickStart = null, hoverEnd = null, gameStarted = false;
 
-let turn,lines,nodes,horiz,vert,cells,clickStart=null,hoverEnd=null,gameStarted=false;
+    // Convert between pixels and grid coords
+    const px2g = px => Math.round(px / cellPx);
+    const g2px = g => g * cellPx;
 
-/* ── Utility mapping between grid coords and pixels ─────── */
-const px2g=px=>Math.round(px/cellPx);
-const g2px=g=>g*cellPx;
+    // Initialize or reset game state
+    function initGameState() {
+      turn   = 1;
+      lines  = [];
+      nodes  = Array.from({ length: gridSize }, () => Array(gridSize).fill(false));
+      horiz  = Array.from({ length: gridSize }, () => Array(gridSize - 1).fill(false));
+      vert   = Array.from({ length: gridSize - 1 }, () => Array(gridSize).fill(false));
+      cells  = Array.from({ length: gridSize - 1 }, () => Array(gridSize - 1).fill(0));
+      clickStart = hoverEnd = null;
+      gameStarted = true;
+      $('debug').textContent = '';
+      $('info').textContent  = 'Turn: Player 1';
+      draw();
+    }
+    $('restartBtn').onclick = initGameState;
+    initGameState();  // start immediately
 
-/* ── Game initialisation / reset ─────────────────────────── */
-function initGameState(){
-  turn=1;
-  lines=[];
-  nodes = Array.from({length:gridSize},()=>Array(gridSize).fill(false));
-  horiz = Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
-  vert  = Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
-  cells = Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
-  clickStart=hoverEnd=null;
-  gameStarted=true;
-  $('debug').textContent='';
-  $('info').textContent='Turn: Player 1';
-  draw();
-}
-$('restartBtn').onclick=initGameState;
-initGameState();   // start immediately on load
+    // Helpers for move validation
+    function isStraight3(sx,sy,ex,ey) {
+      const dx = Math.abs(ex - sx), dy = Math.abs(ey - sy);
+      return (dx === 3 && dy === 0) || (dx === 0 && dy === 3);
+    }
+    function interior(sx,sy,ex,ey) {
+      if (sx === ex) {
+        const y0 = Math.min(sy, ey);
+        return [{ x: sx, y: y0 + 1 }, { x: sx, y: y0 + 2 }];
+      } else {
+        const x0 = Math.min(sx, ex);
+        return [{ x: x0 + 1, y: sy }, { x: x0 + 2, y: sy }];
+      }
+    }
+    function noCross(sx,sy,ex,ey) {
+      const ni = interior(sx,sy,ex,ey);
+      return !lines.some(ln => {
+        return interior(ln.sx,ln.sy,ln.ex,ln.ey)
+          .some(a => ni.some(b => a.x===b.x && a.y===b.y));
+      });
+    }
+    const touches = (sx,sy,ex,ey) =>
+      lines.length === 0 || nodes[sy][sx] || nodes[ey][ex];
 
-/* ── Core geometric helpers (unchanged) ─────────────────── */
-const isStraight3=(sx,sy,ex,ey)=>{
-  const dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);
-  return (dx===3&&dy===0)||(dx===0&&dy===3);
-};
-const interior=(sx,sy,ex,ey)=>sx===ex?
-  [{x:sx,y:Math.min(sy,ey)+1},{x:sx,y:Math.min(sy,ey)+2}]:
-  [{x:Math.min(sx,ex)+1,y:sy},{x:Math.min(sx,ex)+2,y:sy}];
-
-function noCross(sx,sy,ex,ey){
-  const ni=interior(sx,sy,ex,ey);
-  return !lines.some(ln=>interior(ln.sx,ln.sy,ln.ex,ln.ey)
-    .some(a=>ni.some(b=>a.x===b.x&&a.y===b.y)));
-}
-const touches=(sx,sy,ex,ey)=>lines.length===0||nodes[sy][sx]||nodes[ey][ex];
-
-/* ── Occupy, territory filling, drawing ─────────────────── */
-function occupy(sx,sy,ex,ey,p){
-  lines.push({sx,sy,ex,ey,player:p});
-  if(sx===ex){const x=sx,y0=Math.min(sy,ey);
-    for(let d=0;d<3;d++){vert[y0+d][x]=true;nodes[y0+d][x]=nodes[y0+d+1][x]=true;}}
-  else{const y=sy,x0=Math.min(sx,ex);
-    for(let d=0;d<3;d++){horiz[y][x0+d]=true;nodes[y][x0+d]=nodes[y][x0+1+d]=true;}}
-  fillTerritories(p);
-}
-
-function fillTerritories(p){
-  const visited=Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(false));
-  const q=[];
-  for(let i=0;i<gridSize-1;i++)
-    [[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]]
-    .forEach(([x,y])=>{if(!visited[y][x]){visited[y][x]=true;q.push({x,y});}});
-  const pass=(x,y,nx,ny)=>x===nx?!horiz[Math.min(y,ny)+1][x]:!vert[y][Math.min(x,nx)+1];
-  while(q.length){
-    const{ x,y}=q.shift();
-    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
-      const nx=x+dx,ny=y+dy;
-      if(nx>=0&&nx<gridSize-1&&ny>=0&&ny<gridSize-1&&!visited[ny][nx]&&pass(x,y,nx,ny)){
-        visited[ny][nx]=true;q.push({x:nx,y:ny});}});
-  }
-  for(let y=0;y<gridSize-1;y++)
-    for(let x=0;x<gridSize-1;x++)
-      if(!visited[y][x]&&cells[y][x]===0)cells[y][x]=p;
-}
-
-function draw(){
-  ctx.clearRect(0,0,420,420);
-
-  /* grid */
-  ctx.strokeStyle='#ddd';ctx.lineWidth=1;
-  for(let i=0;i<=gridSize;i++){
-    const p=g2px(i);
-    ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,420);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(420,p);ctx.stroke();
-  }
-
-  /* filled cells */
-  for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
-    if(cells[y][x]>0){
-      ctx.globalAlpha=.2;ctx.fillStyle=cells[y][x]==1?'red':'blue';
-      ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;
+    // Place a line + mark nodes + fill territory
+    function occupy(sx,sy,ex,ey,player) {
+      lines.push({ sx, sy, ex, ey, player });
+      if (sx === ex) {
+        // vertical
+        const x = sx, y0 = Math.min(sy, ey);
+        for (let d = 0; d < 3; d++) {
+          vert[y0 + d][x] = true;
+          nodes[y0 + d][x] = nodes[y0 + d + 1][x] = true;
+        }
+      } else {
+        // horizontal
+        const y = sy, x0 = Math.min(sx, ex);
+        for (let d = 0; d < 3; d++) {
+          horiz[y][x0 + d] = true;
+          nodes[y][x0 + d] = nodes[y][x0 + 1 + d] = true;
+        }
+      }
+      fillTerritories(player);
     }
 
-  /* lines */
-  for(const ln of lines){
-    ctx.beginPath();ctx.lineWidth=4;ctx.strokeStyle=ln.player==1?'red':'blue';
-    ctx.moveTo(g2px(ln.sx),g2px(ln.sy));ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();
-  }
+    // Flood‐fill outside to find enclosed cells
+    function fillTerritories(player) {
+      const visited = Array.from({ length: gridSize - 1 },
+                    () => Array(gridSize - 1).fill(false));
+      const queue = [];
 
-  /* drag preview */
-  if(clickStart&&hoverEnd){
-    ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle='gray';
-    ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y));
-    ctx.stroke();ctx.setLineDash([]);
-  }
-}
+      // enqueue all border cells
+      for (let i = 0; i < gridSize - 1; i++) {
+        [[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]]
+          .forEach(([x,y]) => {
+            if (!visited[y][x]) {
+              visited[y][x] = true;
+              queue.push({ x, y });
+            }
+          });
+      }
 
-/* ── Canvas input ─────────────────────────────────────────── */
-canvas.addEventListener('mousemove',e=>{
-  if(!clickStart||!gameStarted)return;
-  const r=canvas.getBoundingClientRect();
-  hoverEnd={x:px2g(e.clientX-r.left),y:px2g(e.clientY-r.top)};
-  draw();
-});
-canvas.addEventListener('click',e=>{
-  if(!gameStarted)return;
-  const r=canvas.getBoundingClientRect();
-  const gx=px2g(e.clientX-r.left),gy=px2g(e.clientY-r.top);
+      // can we pass between two cells?
+      const canPass = (x,y,nx,ny) =>
+        x === nx
+          ? !horiz[Math.min(y,ny) + 1][x]
+          : !vert[y][Math.min(x,nx) + 1];
 
-  /* first click = anchor point */
-  if(!clickStart){clickStart={x:gx,y:gy};hoverEnd=null;return;}
+      // BFS from outside
+      while (queue.length) {
+        const { x, y } = queue.shift();
+        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy]) => {
+          const nx = x + dx, ny = y + dy;
+          if (
+            nx >= 0 && nx < gridSize-1 &&
+            ny >= 0 && ny < gridSize-1 &&
+            !visited[ny][nx] &&
+            canPass(x,y,nx,ny)
+          ) {
+            visited[ny][nx] = true;
+            queue.push({ x: nx, y: ny });
+          }
+        });
+      }
 
-  /* second click = attempt line */
-  const {x:sx,y:sy}=clickStart;
-  const {x:ex,y:ey}=hoverEnd||{x:gx,y:gy};
+      // any unvisited cell is enclosed
+      for (let y = 0; y < gridSize - 1; y++) {
+        for (let x = 0; x < gridSize - 1; x++) {
+          if (!visited[y][x] && cells[y][x] === 0) {
+            cells[y][x] = player;
+          }
+        }
+      }
+    }
 
-  if(!isStraight3(sx,sy,ex,ey)){
-    $('debug').textContent='Line must be straight and exactly 3 cells long.';
-  }else if(!touches(sx,sy,ex,ey)){
-    $('debug').textContent='Line must touch an existing node.';
-  }else if(!noCross(sx,sy,ex,ey)){
-    $('debug').textContent='Line would illegally cross another.';
-  }else{
-    occupy(sx,sy,ex,ey,turn);
-    turn=turn===1?2:1;
-    $('info').textContent=Turn: Player ${turn};
-    $('debug').textContent='';
-  }
-  clickStart=hoverEnd=null;
-  draw();
-});
+    // Draw the grid, territories, lines, preview
+    function draw() {
+      ctx.clearRect(0,0,420,420);
 
-}); /* end DOMContentLoaded */
-</script>
+      // grid lines
+      ctx.strokeStyle = '#ddd';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= gridSize; i++) {
+        const p = g2px(i);
+        ctx.beginPath();
+        ctx.moveTo(p,0);    ctx.lineTo(p,420); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0,p);    ctx.lineTo(420,p); ctx.stroke();
+      }
+
+      // filled cells
+      for (let y = 0; y < gridSize - 1; y++) {
+        for (let x = 0; x < gridSize - 1; x++) {
+          if (cells[y][x] > 0) {
+            ctx.globalAlpha = 0.2;
+            ctx.fillStyle = cells[y][x] === 1 ? 'red' : 'blue';
+            ctx.fillRect(g2px(x), g2px(y), cellPx, cellPx);
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+
+      // placed lines
+      for (const ln of lines) {
+        ctx.beginPath();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = ln.player === 1 ? 'red' : 'blue';
+        ctx.moveTo(g2px(ln.sx), g2px(ln.sy));
+        ctx.lineTo(g2px(ln.ex), g2px(ln.ey));
+        ctx.stroke();
+      }
+
+      // drag preview
+      if (clickStart && hoverEnd) {
+        ctx.beginPath();
+        ctx.setLineDash([5,5]);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'gray';
+        ctx.moveTo(g2px(clickStart.x), g2px(clickStart.y));
+        ctx.lineTo(g2px(hoverEnd.x),  g2px(hoverEnd.y));
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // Handle mouse movement (for preview)
+    canvas.addEventListener('mousemove', e => {
+      if (!clickStart || !gameStarted) return;
+      const r = canvas.getBoundingClientRect();
+      hoverEnd = {
+        x: px2g(e.clientX - r.left),
+        y: px2g(e.clientY - r.top)
+      };
+      draw();
+    });
+
+    // Handle clicks (place or preview start)
+    canvas.addEventListener('click', e => {
+      if (!gameStarted) return;
+      const r = canvas.getBoundingClientRect();
+      const gx = px2g(e.clientX - r.left);
+      const gy = px2g(e.clientY - r.top);
+
+      // first click: start
+      if (!clickStart) {
+        clickStart = { x: gx, y: gy };
+        hoverEnd  = null;
+        return;
+      }
+
+      // second click: attempt to place
+      const { x: sx, y: sy } = clickStart;
+      const { x: ex, y: ey } = hoverEnd || { x: gx, y: gy };
+
+      if (!isStraight3(sx,sy,ex,ey)) {
+        $('debug').textContent = 'Line must be straight and exactly 3 cells long.';
+      } else if (!touches(sx,sy,ex,ey)) {
+        $('debug').textContent = 'Line must touch an existing node.';
+      } else if (!noCross(sx,sy,ex,ey)) {
+        $('debug').textContent = 'Line would illegally cross another.';
+      } else {
+        occupy(sx,sy,ex,ey,turn);
+        turn = turn === 1 ? 2 : 1;
+        $('info').textContent = `Turn: Player ${turn}`;
+        $('debug').textContent = '';
+      }
+
+      clickStart = hoverEnd = null;
+      draw();
+    });
+
+  }); // end DOMContentLoaded
+  </script>
 </body>
 </html>
