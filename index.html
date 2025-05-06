@@ -4,27 +4,28 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Grid Territory — Netplay build</title>
+
 <style>
 html,body{margin:0;padding:0;height:100%;background:#fff;font-family:sans-serif}
 #wrapper{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
 h2{margin:8px 0}
 canvas{background:#fff}
 #info{margin-top:8px;font-weight:600}
-#debug{margin-top:8px;color:#a00;font-size:.8em;white-space:pre-wrap}
+#debug{margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap}
 button{margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer}
 </style>
 
-<!-- Netplay JS (latest 0 .4 tag) -->
+<!-- Netplay JS (0.4.x) -->
 <script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js"
-        integrity="sha384-6Yb8LWAT488jwK+nIjvD4S5/poq1Xn69NYjH1RXKHoaUOaFJrKQ1rfGQgKm8oQjX"
         crossorigin="anonymous"></script>
 
-<!-- Your game’s logic -->
+<!-- game code -->
 <script type="module" src="./grid‑territory.js"></script>
 </head>
+
 <body>
 <div id="wrapper">
-  <h2>Grid Territory (online versus)</h2>
+  <h2>Grid Territory (online versus)</h2>
   <canvas id="game" width="420" height="420"></canvas>
   <div id="info">Connecting…</div>
   <div id="debug"></div>

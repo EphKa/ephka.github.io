@@ -1,59 +1,63 @@
-// A single frame of player‑input that NetplayJS will replicate.
-export class GridInput extends netplayjs.NetplayInput {
-  // null = no action this frame; otherwise {sx,sy,ex,ey}
-  action = null;
+/*  ─────────────   Input replication helper for NetplayJS   ───────────── */
 
-  // the API NetplayJS calls each predictive frame.
-  predictNext() {
-    // by default keep the same (no speculative clicks)
-    return this;
-  }
+export const preview = { anchor:null, hover:null };   // cosmetic only
+
+// One frame of replicated input ------------------------------------------------
+export class GridInput extends netplayjs.NetplayInput {
+  constructor(){ super(); this.action = null; }       // {sx,sy,ex,ey} or null
+  predictNext(){ return this; }                       // no speculative changes
 }
 
-// Per‑player input reader.  One instance for each local player.
+// Reads local mouse events and produces GridInput each simulation step ----------
 export class GridInputReader {
 
-  constructor(canvas, gridSize, cellPx) {
+  constructor(canvas, gridSize, cellPx){
     this.canvas = canvas;
-    this.gs = gridSize;
-    this.cp = cellPx;
+    this.gs  = gridSize;
+    this.cp  = cellPx;
+    this.pending = null;
+    this.anchor  = null;
+    this.hover   = null;
 
-    // click/drag bookkeeping identical to your original file
-    this.anchor = null;
-    canvas.addEventListener("mousemove", e => {
-      if (!this.anchor) return;
-      const {x,y}=this._toGrid(e);
-      this.hover = {x,y};
-    });
-
-    canvas.addEventListener("click", e => {
-      const {x,y}=this._toGrid(e);
-      if (!this.anchor) {
-        this.anchor = {x,y};
-        this.hover  = null;
-      } else {
-        const act = {sx:this.anchor.x, sy:this.anchor.y, ex:x, ey:y};
-        // Stash this action so getInput() can consume it next frame.
-        this.pending = act;
-        this.anchor  = this.hover = null;
-      }
-    });
-  }
-
-  _toGrid(evt){
-    const rect=this.canvas.getBoundingClientRect();
-    return {
-      x: Math.round((evt.clientX-rect.left)/this.cp),
-      y: Math.round((evt.clientY-rect.top )/this.cp)
+    // convert pixel coord to grid index
+    const toGrid = evt=>{
+      const r = canvas.getBoundingClientRect();
+      return {
+        x: Math.round((evt.clientX - r.left) / this.cp),
+        y: Math.round((evt.clientY - r.top ) / this.cp)
+      };
     };
+
+    canvas.addEventListener('mousemove', e=>{
+      if(!this.anchor) return;
+      this.hover = toGrid(e);
+      preview.hover = this.hover;
+    });
+
+    canvas.addEventListener('click', e=>{
+      const g = toGrid(e);
+
+      // 1st click: set anchor
+      if(!this.anchor){
+        this.anchor = g;
+        preview.anchor = this.anchor;
+        preview.hover  = null;
+        return;
+      }
+
+      // 2nd click: commit segment
+      this.pending = { sx:this.anchor.x, sy:this.anchor.y, ex:g.x, ey:g.y };
+      this.anchor  = this.hover = null;
+      preview.anchor = preview.hover = null;
+    });
   }
 
-  /** Called once every simulation step by NetplayJS. */
+  /* NetplayJS calls this once per sim‑step */
   getInput(){
     const inp = new GridInput();
-    if (this.pending) {
+    if(this.pending){
       inp.action = this.pending;
-      this.pending = null;        // consume
+      this.pending = null;          // consume
     }
     return inp;
   }
