@@ -1,187 +1,34 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Grid Territory — online play</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Grid Territory — Netplay build</title>
+<style>
+html,body{margin:0;padding:0;height:100%;background:#fff;font-family:sans-serif}
+#wrapper{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+h2{margin:8px 0}
+canvas{background:#fff}
+#info{margin-top:8px;font-weight:600}
+#debug{margin-top:8px;color:#a00;font-size:.8em;white-space:pre-wrap}
+button{margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer}
+</style>
 
-<!-- NetplayJS -->
+<!-- Netplay JS (latest 0 .4 tag) -->
 <script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js"
         integrity="sha384-6Yb8LWAT488jwK+nIjvD4S5/poq1Xn69NYjH1RXKHoaUOaFJrKQ1rfGQgKm8oQjX"
         crossorigin="anonymous"></script>
 
-<style>
-  /* ― original look ― */
-  html,body{margin:0;height:100%;font-family:sans-serif;background:#fff}
-  #wrapper{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
-  h2{margin:8px 0}
-  #game-container{position:relative;width:420px;height:420px}
-  /* the Netplay canvas will sit here */
-  #info{margin-top:8px;font-weight:600}
-  #debug{margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap}
-  button{margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer}
-</style>
+<!-- Your game’s logic -->
+<script type="module" src="./grid‑territory.js"></script>
 </head>
 <body>
 <div id="wrapper">
-  <h2>Grid Territory</h2>
-  <div id="game-container"></div>
-  <div id="info">Game not started</div>
+  <h2>Grid Territory (online versus)</h2>
+  <canvas id="game" width="420" height="420"></canvas>
+  <div id="info">Connecting…</div>
   <div id="debug"></div>
-  <button id="restartBtn">Restart Game</button>
+  <button id="restart">Restart Game</button>
 </div>
-
-<script>
-/* ── geometry helpers from your local build ── */
-const gridSize=21, cellPx=20;
-const g2px=g=>g*cellPx, px2g=px=>Math.round(px/cellPx);
-
-/* ── NetplayJS Game ── */
-class GridTerritoryGame extends netplayjs.Game{
-  static timestep   = 1000/60;
-  static canvasSize = {width:420,height:420};
-
-  constructor(canvas,players){
-    super();
-    this.ctx=canvas.getContext('2d');
-    this.players=players;
-    this.anchors=new Map(); // per‑player first‑click anchor
-    this.hover=null;
-    this.reset();
-  }
-
-  reset(){
-    this.turn=1;
-    this.debugMsg='';
-    this.lines=[];
-    this.nodes = Array.from({length:gridSize},()=>Array(gridSize).fill(false));
-    this.horiz = Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
-    this.vert  = Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
-    this.cells = Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
-    this.updateDom();
-  }
-
-  /* unchanged helpers */
-  isStraight3(sx,sy,ex,ey){const dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);return(dx===3&&dy===0)||(dx===0&&dy===3);}
-  interior(sx,sy,ex,ey){return sx===ex?[{x:sx,y:Math.min(sy,ey)+1},{x:sx,y:Math.min(sy,ey)+2}]
-                                   :[{x:Math.min(sx,ex)+1,y:sy},{x:Math.min(sx,ex)+2,y:sy}];}
-  noCross(sx,sy,ex,ey){const ni=this.interior(sx,sy,ex,ey);
-    return!this.lines.some(l=>this.interior(l.sx,l.sy,l.ex,l.ey)
-      .some(a=>ni.some(b=>a.x===b.x&&a.y===b.y)));}
-  touches(sx,sy,ex,ey){return this.lines.length===0||this.nodes[sy][sx]||this.nodes[ey][ex];}
-  occupy(sx,sy,ex,ey,p){
-    this.lines.push({sx,sy,ex,ey,player:p});
-    if(sx===ex){const x=sx,y0=Math.min(sy,ey);
-      for(let d=0;d<3;d++){this.vert[y0+d][x]=true;this.nodes[y0+d][x]=this.nodes[y0+d+1][x]=true;}}
-    else{const y=sy,x0=Math.min(sx,ex);
-      for(let d=0;d<3;d++){this.horiz[y][x0+d]=true;this.nodes[y][x0+d]=this.nodes[y][x0+1+d]=true;}}
-    this.fillTerritories(p);
-  }
-  fillTerritories(p){
-    const visited=Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(false)),q=[];
-    for(let i=0;i<gridSize-1;i++)
-      [[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]]
-      .forEach(([x,y])=>{if(!visited[y][x]){visited[y][x]=true;q.push({x,y});}});
-    const pass=(x,y,nx,ny)=>x===nx?!this.horiz[Math.min(y,ny)+1][x]:!this.vert[y][Math.min(x,nx)+1];
-    while(q.length){
-      const{ x,y}=q.shift();
-      [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
-        const nx=x+dx,ny=y+dy;
-        if(nx>=0&&nx<gridSize-1&&ny>=0&&ny<gridSize-1&&!visited[ny][nx]&&pass(x,y,nx,ny)){
-          visited[ny][nx]=true;q.push({x:nx,y:ny});}});
-    }
-    for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
-      if(!visited[y][x]&&this.cells[y][x]===0)this.cells[y][x]=p;
-  }
-
-  /* ---- netcode tick ---- */
-  tick(playerInputs){
-    for(const [player,input] of playerInputs.entries()){
-      if(this.turn-1!==player.getID())continue; // only whose turn can act
-
-      const gx=px2g(input.mouseX()), gy=px2g(input.mouseY());
-
-      if(player.isLocal()){
-        if(this.anchors.has(player.getID())) this.hover={x:gx,y:gy};
-        else this.hover=null;
-      }
-
-      if(input.mouseJustPressed(0)){       // left click
-        if(!this.anchors.has(player.getID())){      // first click
-          this.anchors.set(player.getID(),{x:gx,y:gy});
-        }else{                                    // second click
-          const {x:sx,y:sy}=this.anchors.get(player.getID());
-          const ex=gx,ey=gy;
-          if(!this.isStraight3(sx,sy,ex,ey))      this.debugMsg='Line must be straight and exactly 3 cells long.';
-          else if(!this.touches(sx,sy,ex,ey))     this.debugMsg='Line must touch an existing node.';
-          else if(!this.noCross(sx,sy,ex,ey))     this.debugMsg='Line would illegally cross another.';
-          else{
-            this.occupy(sx,sy,ex,ey,this.turn);
-            this.turn=3-this.turn; this.debugMsg='';
-          }
-          this.anchors.delete(player.getID());
-          this.hover=null; this.updateDom();
-        }
-      }
-    }
-  }
-
-  /* ---- draw ---- */
-  draw(canvas){
-    const ctx=this.ctx;
-    ctx.clearRect(0,0,420,420);
-
-    ctx.strokeStyle='#ddd';ctx.lineWidth=1;
-    for(let i=0;i<=gridSize;i++){
-      const p=g2px(i);
-      ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,420);ctx.stroke();
-      ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(420,p);ctx.stroke();
-    }
-
-    for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
-      if(this.cells[y][x]>0){
-        ctx.globalAlpha=.2;ctx.fillStyle=this.cells[y][x]==1?'red':'blue';
-        ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;
-      }
-
-    for(const ln of this.lines){
-      ctx.beginPath();ctx.lineWidth=4;ctx.strokeStyle=ln.player==1?'red':'blue';
-      ctx.moveTo(g2px(ln.sx),g2px(ln.sy));ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();
-    }
-
-    if(this.hover){
-      const a=this.anchors.get(this.turn-1);
-      if(a){
-        ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle='gray';
-        ctx.moveTo(g2px(a.x),g2px(a.y));ctx.lineTo(g2px(this.hover.x),g2px(this.hover.y));
-        ctx.stroke();ctx.setLineDash([]);
-      }
-    }
-  }
-
-  updateDom(){
-    document.getElementById('info').textContent=`Turn: Player ${this.turn}`;
-    document.getElementById('debug').textContent=this.debugMsg;
-  }
-}
-
-/* ── start once DOM is ready ── */
-document.addEventListener('DOMContentLoaded',()=>{
-  /* find or create room code in URL hash */
-  if(!location.hash){ location.hash = '#' + crypto.randomUUID(); }
-  const room=location.hash.slice(1);
-
-  /* make wrapper, start, then move its canvas into our layout */
-  const wrapper=new netplayjs.LockstepWrapper(GridTerritoryGame);
-  wrapper.start({room}).then(()=>{
-    const container=document.getElementById('game-container');
-    wrapper.canvas.style.position='absolute';wrapper.canvas.style.top='0';wrapper.canvas.style.left='0';
-    container.appendChild(wrapper.canvas);
-  });
-
-  /* restart button just reloads the page (simple + synced) */
-  document.getElementById('restartBtn').onclick=()=>location.reload();
-});
-</script>
 </body>
 </html>
