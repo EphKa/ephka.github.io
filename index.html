@@ -22,17 +22,16 @@
     #wrapper { display:none; height:100%; flex-direction:column; }
     #wrapper.flex { display:flex; }
     #main { display:flex; flex:1; }
-    #game-container { position:relative; width:420px; height:420px; }
+    #game-container { position:relative; }
     canvas { position:absolute; top:0; left:0; background:#fff; }
     #sidebar { margin-left:20px; width:200px; }
     #chatLog { overflow-y:auto; height:200px; border:1px solid #ccc; padding:5px; }
     #info { margin-top:8px; font-weight:600; }
+    #hoverInfo { margin-top:4px; font-size:.9em; color:#333; }
     #debug { margin-top:8px; font-size:.8em; color:#a00; white-space:pre-wrap; }
     button { margin-top:8px; padding:6px 12px; font-size:.9rem; cursor:pointer; }
-    select,input[type="text"] { width:100%; padding:4px; box-sizing:border-box; }
+    select,input[type="text"],input[type="number"] { width:100%; padding:4px; box-sizing:border-box; }
   </style>
-
-  <!-- Firebase UMD (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore-compat.js"></script>
   <script>
@@ -56,13 +55,22 @@
       <label><input type="radio" name="mode" value="local" checked> Local</label>
       <label><input type="radio" name="mode" value="host"> Host Online</label>
       <label><input type="radio" name="mode" value="join"> Join Online</label>
+      <br/><br/>
+      <div id="gridSizeConfig">
+        <label>Grid Size:
+          <select id="gridSizeSelect">
+            <option value="10">Small (10×10)</option>
+            <option value="20" selected>Medium (20×20)</option>
+            <option value="50">Large (50×50)</option>
+          </select>
+        </label>
+      </div>
+      <br/><br/>
       <div id="hostConfig">
-        <br/>
         <label>Players: <input type="number" id="playerCount" min="2" max="8" value="2"/></label>
       </div>
       <div id="joinConfig" style="display:none;">
-        <br/>
-        <input id="joinGameId" type="text" placeholder="Enter Game ID to join"/>
+        <label>Game ID: <input id="joinGameId" type="text" placeholder="Enter Game ID to join"/></label>
       </div>
       <button id="startBtn">Next →</button>
     </div>
@@ -104,7 +112,8 @@
     <h2>Grid Territory</h2>
     <div id="main">
       <div id="game-container">
-        <canvas id="gameCanvas" width="420" height="420"></canvas>
+        <canvas id="gameCanvas"></canvas>
+        <div id="hoverInfo"></div>
       </div>
       <div id="sidebar">
         <div id="chatSection" style="display:none;">
@@ -124,154 +133,159 @@
   document.addEventListener('DOMContentLoaded', () => {
     const $ = id => document.getElementById(id);
     const clientId = Math.random().toString(36).substr(2,9);
-
-    let mode, maxPlayers, myIndex, gameRef, started=false;
-    let players=[], lines=[], chat=[], turnIndex=0;
-    const db = firebase.firestore();
+    let mode, gridSize, maxPlayers, myIndex, gameRef, started = false;
+    let players = [], lines = [], chat = [], turnIndex = 0;
+    const cellPx = 20,
+          db     = firebase.firestore();
 
     // UI refs
-    const modeRadios    = document.getElementsByName('mode'),
-          hostConfig    = $('hostConfig'),
-          joinConfig    = $('joinConfig'),
-          playerCountIn = $('playerCount'),
-          joinGameId    = $('joinGameId'),
-          startBtn      = $('startBtn'),
-          setupOverlay  = $('setupOverlay'),
-          lobbyOverlay  = $('lobbyOverlay'),
-          lobbyGameIdEl = $('lobbyGameId'),
-          maxPlayersEl  = $('maxPlayersDisplay'),
-          joinedCountEl = $('joinedCount'),
-          lobbyList     = $('lobbyPlayersList'),
-          myNameInput   = $('myName'),
-          myColorSelect = $('myColor'),
-          readyBtn      = $('readyBtn'),
-          hostStartBtn  = $('hostStartBtn'),
-          wrapper       = $('wrapper'),
-          chatSection   = $('chatSection'),
-          chatLog       = $('chatLog'),
-          chatInput     = $('chatInput'),
-          chatSendBtn   = $('chatSendBtn'),
-          infoEl        = $('info'),
-          debugEl       = $('debug'),
-          restartBtn    = $('restartBtn'),
-          canvas        = $('gameCanvas'),
-          ctx           = canvas.getContext('2d');
+    const modeRadios     = document.getElementsByName('mode'),
+          gridSizeConfig = $('gridSizeConfig'),
+          gridSizeSelect = $('gridSizeSelect'),
+          hostConfig     = $('hostConfig'),
+          joinConfig     = $('joinConfig'),
+          playerCountIn  = $('playerCount'),
+          joinGameId     = $('joinGameId'),
+          startBtn       = $('startBtn'),
+          setupOverlay   = $('setupOverlay'),
+          lobbyOverlay   = $('lobbyOverlay'),
+          lobbyGameIdEl  = $('lobbyGameId'),
+          maxPlayersEl   = $('maxPlayersDisplay'),
+          joinedCountEl  = $('joinedCount'),
+          lobbyList      = $('lobbyPlayersList'),
+          myNameInput    = $('myName'),
+          myColorSelect  = $('myColor'),
+          readyBtn       = $('readyBtn'),
+          hostStartBtn   = $('hostStartBtn'),
+          wrapper        = $('wrapper'),
+          chatSection    = $('chatSection'),
+          chatLog        = $('chatLog'),
+          chatInput      = $('chatInput'),
+          chatSendBtn    = $('chatSendBtn'),
+          infoEl         = $('info'),
+          hoverInfoEl    = $('hoverInfo'),
+          debugEl        = $('debug'),
+          restartBtn     = $('restartBtn'),
+          canvas         = $('gameCanvas'),
+          ctx            = canvas.getContext('2d'),
+          gameContainer  = $('game-container');
 
-    // Grid state
-    const gridSize = 21, cellPx = 20;
-    let nodes, interiorNodes, horiz, vert, cells;
+    // snap-to-grid
+    function px2g(px){
+      return Math.min(
+        Math.max(
+          Math.round(px / cellPx),
+          0
+        ),
+        gridSize - 1
+      );
+    }
+    function g2px(g){ return g * cellPx; }
 
+    // board state
+    let endpoints, mids, horiz, vert, cells;
     function makeEmptyCells(){
-      return Array.from({length:gridSize-1}, ()=>Array(gridSize-1).fill(0));
+      return Array.from({length: gridSize-1}, ()=>Array(gridSize-1).fill(0));
     }
     function initializeGame(){
-      nodes = Array.from({length:gridSize}, ()=>Array(gridSize).fill(false));
-      interiorNodes = Array.from({length:gridSize}, ()=>Array(gridSize).fill(false));
-      horiz = Array.from({length:gridSize}, ()=>Array(gridSize-1).fill(false));
-      vert  = Array.from({length:gridSize-1}, ()=>Array(gridSize).fill(false));
-      cells = makeEmptyCells();
-    }
-    function computeState(){
-      initializeGame();
-      lines.forEach(ln => occupy(ln.sx,ln.sy,ln.ex,ln.ey,ln.playerIndex));
+      endpoints = Array.from({length: gridSize}, ()=>Array(gridSize).fill(false));
+      mids      = Array.from({length: gridSize}, ()=>Array(gridSize).fill(false));
+      horiz     = Array.from({length: gridSize}, ()=>Array(gridSize-1).fill(false));
+      vert      = Array.from({length: gridSize-1}, ()=>Array(gridSize).fill(false));
+      cells     = makeEmptyCells();
     }
 
-    // Snap px→grid, CLAMPED to [0, gridSize-1]
-    function px2g(px){
-      const g = Math.floor((px + cellPx/2)/cellPx);
-      return Math.min(Math.max(g, 0), gridSize-1);
-    }
-    function g2px(g){ return g*cellPx; }
-
-    // Interior dots
-    function getInterior(sx,sy,ex,ey){
-      return [
-        { x: sx + (ex-sx)/3,   y: sy + (ey-sy)/3   },
-        { x: sx + 2*(ex-sx)/3, y: sy + 2*(ey-sy)/3 }
-      ];
-    }
-
-    // Core occupy
-    function _occupy(sx,sy,ex,ey,p){
-      if(sx===ex){
-        const x=sx, y0=Math.min(sy,ey);
-        for(let d=0;d<3;d++) vert[y0+d][x]=true;
+    function canPass(x,y,nx,ny){
+      if(x===nx){
+        return !horiz[Math.min(y,ny)+1][x];
       } else {
-        const y=sy, x0=Math.min(sx,ex);
-        for(let d=0;d<3;d++) horiz[y][x0+d]=true;
+        return !vert[y][Math.min(x,nx)+1];
       }
-      const all = [{x:sx,y:sy},{x:ex,y:ey},...getInterior(sx,sy,ex,ey)];
-      all.forEach(pt=> nodes[pt.y][pt.x]=true );
-      getInterior(sx,sy,ex,ey).forEach(pt=> interiorNodes[pt.y][pt.x]=true);
-      fillTerritories(p);
-    }
-    function occupy(sx,sy,ex,ey,p){
-      if(mode==='local') lines.push({sx,sy,ex,ey,playerIndex:p});
-      _occupy(sx,sy,ex,ey,p);
     }
 
-    // Flood-fill
+    // improved flood-fill: only treat edge as open if there's actually no wall
     function fillTerritories(player){
-      const visited = Array.from({length:gridSize-1}, ()=>Array(gridSize-1).fill(false));
-      const queue = [];
-      for(let i=0;i<gridSize-1;i++){
-        [[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]].forEach(([x,y])=>{
-          if(!visited[y][x]){
-            visited[y][x]=true;
-            queue.push({x,y});
-          }
-        });
-      }
-      const canPass = (x,y,nx,ny) =>
-        x===nx
-          ? !horiz[Math.min(y,ny)+1][x]
-          : !vert[y][Math.min(x,nx)+1];
+      const rows = gridSize-1, cols = gridSize-1;
+      const visited = Array.from({length: rows}, ()=>Array(cols).fill(false));
 
-      while(queue.length){
-        const {x,y} = queue.shift();
-        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
-          const nx=x+dx, ny=y+dy;
-          if(
-            nx>=0&&nx<gridSize-1&&
-            ny>=0&&ny<gridSize-1&&
-            !visited[ny][nx]&&
-            canPass(x,y,nx,ny)
-          ){
-            visited[ny][nx]=true;
-            queue.push({x:nx,y:ny});
+      for(let y=0; y<rows; y++){
+        for(let x=0; x<cols; x++){
+          if(visited[y][x] || cells[y][x]!==0) continue;
+          const region = [];
+          let escapes = false;
+          const queue = [{x,y}];
+          visited[y][x] = true;
+
+          while(queue.length){
+            const {x:cx, y:cy} = queue.shift();
+            region.push({x:cx, y:cy});
+
+            // if on border & no wall, we escape
+            if(cx===0      && !vert[cy][0])    escapes = true;
+            if(cx===cols-1 && !vert[cy][cols]) escapes = true;
+            if(cy===0      && !horiz[0][cx])   escapes = true;
+            if(cy===rows-1 && !horiz[rows][cx])escapes = true;
+
+            [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+              const nx = cx+dx, ny = cy+dy;
+              if(nx>=0&&nx<cols&&ny>=0&&ny<rows&&
+                 !visited[ny][nx]&&canPass(cx,cy,nx,ny)){
+                visited[ny][nx] = true;
+                queue.push({x:nx,y:ny});
+              }
+            });
           }
-        });
-      }
-      for(let y=0;y<gridSize-1;y++){
-        for(let x=0;x<gridSize-1;x++){
-          if(!visited[y][x] && cells[y][x]===0){
-            cells[y][x]=player+1;
+
+          if(!escapes){
+            region.forEach(pt=> cells[pt.y][pt.x] = player+1);
           }
         }
       }
     }
 
-    // Validators
+    // draw a line & mark its endpoints+mids
+    function occupy(sx,sy,ex,ey,p){
+      // mark wall segments
+      if(sx===ex){
+        const x=sx, y0=Math.min(sy,ey);
+        for(let d=0; d<3; d++) vert[y0+d][x] = true;
+      } else {
+        const y=sy, x0=Math.min(sx,ex);
+        for(let d=0; d<3; d++) horiz[y][x0+d] = true;
+      }
+      // endpoints
+      endpoints[sy][sx] = true;
+      endpoints[ey][ex] = true;
+      // mids only
+      const mid1 = { x: sx + (ex-sx)/3, y: sy + (ey-sy)/3 };
+      const mid2 = { x: sx + 2*(ex-sx)/3, y: sy + 2*(ey-sy)/3 };
+      mids[mid1.y][mid1.x] = true;
+      mids[mid2.y][mid2.x] = true;
+
+      fillTerritories(p);
+    }
+
+    // validators
     function isStraight3(sx,sy,ex,ey){
       const dx=Math.abs(ex-sx), dy=Math.abs(ey-sy);
       return (dx===3&&dy===0)||(dx===0&&dy===3);
     }
     function noNodeReuse(sx,sy,ex,ey){
-      return getInterior(sx,sy,ex,ey)
-        .every(pt=>!interiorNodes[pt.y][pt.x]);
+      const mid1 = { x: sx + (ex-sx)/3,   y: sy + (ey-sy)/3 };
+      const mid2 = { x: sx + 2*(ex-sx)/3, y: sy + 2*(ey-sy)/3 };
+      return !mids[mid1.y][mid1.x] && !mids[mid2.y][mid2.x];
     }
     function noTerritory(sx,sy,ex,ey){
-      // unchanged logic, but with valid indices now
       if(sx===ex){
         const x=sx, y0=Math.min(sy,ey);
-        for(let d=0;d<3;d++){
+        for(let d=0; d<3; d++){
           const y=y0+d;
           if((x-1>=0&&cells[y][x-1]!==0)||(x<gridSize-1&&cells[y][x]!==0))
             return false;
         }
       } else {
         const y=sy, x0=Math.min(sx,ex);
-        for(let d=0;d<3;d++){
+        for(let d=0; d<3; d++){
           const x=x0+d;
           if((y-1>=0&&cells[y-1][x]!==0)||(y<gridSize-1&&cells[y][x]!==0))
             return false;
@@ -279,49 +293,39 @@
       }
       return true;
     }
+    function isConnected(sx, sy, ex, ey) {
+      // allow the very first move
+      if (lines.length === 0) return true;
 
-    // NEW: forbid mutual end‐to‐midpoint touches
-    function noMutualTouch(sx,sy,ex,ey){
-      const newEnds = [{x:sx,y:sy},{x:ex,y:ey}];
-      const newMids = getInterior(sx,sy,ex,ey);
-      for(const ln of lines){
-        const extEnds = [{x:ln.sx,y:ln.sy},{x:ln.ex,y:ln.ey}];
-        const extMids = getInterior(ln.sx,ln.sy,ln.ex,ln.ey);
-        const endTouchesMid = extMids.some(em =>
-          newEnds.some(ne => ne.x===em.x && ne.y===em.y)
-        );
-        const midTouchesEnd = newMids.some(nm =>
-          extEnds.some(ee => ee.x===nm.x && ee.y===nm.y)
-        );
-        if(endTouchesMid && midTouchesEnd){
-          return false;
-        }
-      }
-      return true;
+      const pts = [
+        { x: sx, y: sy },
+        { x: ex, y: ey },
+        { x: sx + (ex - sx) / 3,   y: sy + (ey - sy) / 3 },
+        { x: sx + 2*(ex - sx) / 3, y: sy + 2*(ey - sy) / 3 }
+      ];
+
+      // must touch any existing endpoint or midpoint
+      return pts.some(pt =>
+        endpoints[pt.y][pt.x] ||
+        mids     [pt.y][pt.x]
+      );
     }
 
-    function isConnected(sx,sy,ex,ey){
-      if(!lines.length) return true;
-      const pts = [{x:sx,y:sy},{x:ex,y:ey},...getInterior(sx,sy,ex,ey)];
-      return pts.some(pt=>nodes[pt.y][pt.x]);
-    }
-
-    // Draw
+    // draw everything
     function draw(){
-      ctx.clearRect(0,0,420,420);
+      ctx.clearRect(0,0,canvas.width,canvas.height);
       ctx.strokeStyle='#ddd'; ctx.lineWidth=1;
-      for(let i=0;i<=gridSize;i++){
+      for(let i=0;i<gridSize;i++){
         const p=g2px(i);
-        ctx.beginPath(); ctx.moveTo(p,0);    ctx.lineTo(p,420); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0,p);    ctx.lineTo(420,p); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,canvas.height); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(canvas.width,p);   ctx.stroke();
       }
       // territories
       for(let y=0;y<gridSize-1;y++){
         for(let x=0;x<gridSize-1;x++){
-          const o=cells[y][x];
-          if(o>0){
+          if(cells[y][x]>0){
             ctx.globalAlpha=0.2;
-            ctx.fillStyle=players[o-1].color;
+            ctx.fillStyle=players[cells[y][x]-1].color;
             ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);
             ctx.globalAlpha=1;
           }
@@ -329,53 +333,60 @@
       }
       // lines
       lines.forEach(ln=>{
-        ctx.beginPath();
-        ctx.lineWidth=4;
+        ctx.beginPath(); ctx.lineWidth=4;
         ctx.strokeStyle=players[ln.playerIndex].color;
         ctx.moveTo(g2px(ln.sx),g2px(ln.sy));
         ctx.lineTo(g2px(ln.ex),g2px(ln.ey));
         ctx.stroke();
       });
-      // preview
-      if(clickStart && hoverEnd){
-        ctx.beginPath();
-        ctx.setLineDash([5,5]);
-        ctx.lineWidth=2;
-        ctx.strokeStyle='gray';
-        ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));
-        ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y));
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
     }
 
-    // Update the info bar with turn + territory counts
     function updateInfo(){
-      const counts = players.map(() => 0);
-      cells.forEach(row =>
-        row.forEach(c =>
-          c>0 && counts[c-1]++
-        )
-      );
-      let text = `Turn: ${players[turnIndex].name}`;
-      const parts = players.map((p,i)=>`${p.name}: ${counts[i]}`);
-      text += ' | Territories: ' + parts.join(', ');
-      infoEl.textContent = text;
+      const counts = players.map(()=>0);
+      cells.forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) counts[c-1]++; }));
+      let txt = `Turn: ${players[turnIndex].name}`;
+      txt += ' | ' + players.map((p,i)=>`${p.name}: ${counts[i]}`).join(', ');
+      infoEl.textContent = txt;
     }
 
-    // Setup & lobby logic
+    function renderChat(){
+      chatLog.innerHTML = '';
+      chat.sort((a,b)=>(a.timestamp.seconds||a.timestamp)-(b.timestamp.seconds||b.timestamp))
+          .forEach(m=>{
+            const t = m.timestamp.seconds
+              ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
+              : new Date(m.timestamp).toLocaleTimeString();
+            const div = document.createElement('div');
+            div.innerHTML = `<strong>${m.senderName}</strong> [${t}]: ${m.text}`;
+            chatLog.append(div);
+          });
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    // show/hide config
     function updateConfig(){
       mode = document.querySelector('input[name=mode]:checked').value;
-      hostConfig.style.display = mode!=='join' ? 'block' : 'none';
-      joinConfig.style.display = mode==='join'   ? 'block' : 'none';
+      hostConfig.style.display     = mode!=='join' ? 'block' : 'none';
+      joinConfig.style.display     = mode==='join'  ? 'block' : 'none';
+      gridSizeConfig.style.display = mode==='join'  ? 'none'  : 'block';
     }
-    modeRadios.forEach(r=>r.addEventListener('change', updateConfig));
+    modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
     updateConfig();
 
-    startBtn.onclick = () => {
+    // Start
+    startBtn.onclick = async ()=>{
       mode = document.querySelector('input[name=mode]:checked').value;
+      const dim = parseInt(gridSizeSelect.value,10);
+      if(mode!=='join'){
+        gridSize = dim + 1;
+        canvas.width  = cellPx * dim;
+        canvas.height = cellPx * dim;
+        gameContainer.style.width  = canvas.width + 'px';
+        gameContainer.style.height = canvas.height+ 'px';
+      }
       if(mode==='local'){
-        maxPlayers = +playerCountIn.value; players=[];
+        maxPlayers = +playerCountIn.value;
+        players = [];
         for(let i=0;i<maxPlayers;i++){
           players.push({
             id:null,
@@ -384,175 +395,168 @@
             ready:true
           });
         }
-        lines=[]; setupOverlay.style.display='none'; startLocal();
+        lines=[]; setupOverlay.style.display='none';
+        initializeGame(); draw(); updateInfo();
+        wrapper.style.display='flex'; wrapper.classList.add('flex');
       } else {
         maxPlayers = +playerCountIn.value;
         const gid = mode==='host'
           ? (()=>{ const id=Math.random().toString(36).substr(2,9);
-                    history.replaceState(null,'','?game='+id);
-                    return id; })()
+                   history.replaceState(null,'','?game='+id);
+                   return id; })()
           : joinGameId.value.trim();
-        if(mode==='join' && !gid) return alert('Enter Game ID');
+        if(mode==='join'&&!gid) return alert('Enter Game ID');
         setupOverlay.style.display='none';
         lobbyOverlay.style.display='flex';
         lobbyGameIdEl.textContent = gid;
         maxPlayersEl.textContent  = maxPlayers;
-        initOnline(gid, mode==='host');
+        gameRef = db.collection('games').doc(gid);
+
+        if(mode==='host'){
+          players=[{id:clientId,name:'Player 1',color:'#006400',ready:false}];
+          await gameRef.set({
+            maxPlayers, players, turnIndex:0,
+            lines:[], chat:[], started:false,
+            gridSizeDim:dim,
+            timestamp:firebase.firestore.FieldValue.serverTimestamp()
+          });
+        } else {
+          const snap = await gameRef.get();
+          if(!snap.exists) return alert('Game not found');
+          const data = snap.data();
+          if(data.players.length>=data.maxPlayers) return alert('Game is full');
+          players = data.players;
+          players.push({
+            id:clientId,
+            name:`Player ${players.length+1}`,
+            color:['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'][players.length],
+            ready:false
+          });
+          await gameRef.update({players});
+        }
+        gameRef.onSnapshot(doc=>handleSnapshot(doc.data()));
       }
     };
 
-    function startLocal(){
-      initializeGame(); computeState(); draw(); updateInfo();
-      wrapper.style.display='flex'; wrapper.classList.add('flex');
-    }
-
-    async function initOnline(gameId,isHost){
-      gameRef = db.collection('games').doc(gameId);
-      if(isHost){
-        players=[{id:clientId,name:'Player 1',color:'#006400',ready:false}];
-        await gameRef.set({
-          maxPlayers, players, turnIndex:0,
-          lines:[], chat:[], started:false
-        });
-      } else {
-        const snap = await gameRef.get();
-        if(!snap.exists) return alert('Game not found');
-        const data = snap.data();
-        if(data.players.length>=data.maxPlayers) return alert('Game is full');
-        players = data.players;
-        players.push({
-          id:clientId,
-          name:`Player ${players.length+1}`,
-          color:['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'][players.length],
-          ready:false
-        });
-        await gameRef.update({players});
-      }
-      gameRef.onSnapshot(doc=>handleSnapshot(doc.data(),isHost));
-    }
-
-    function handleSnapshot(data,isHost){
+    function handleSnapshot(data){
       players    = data.players;
       lines      = data.lines;
       chat       = data.chat;
       turnIndex  = data.turnIndex;
       maxPlayers = data.maxPlayers;
       started    = data.started;
-      myIndex    = players.findIndex(p=>p.id===clientId);
 
       if(!started){
         joinedCountEl.textContent=players.length;
         lobbyList.innerHTML='';
         players.forEach(p=>{
-          const div=document.createElement('div');
-          const sw=document.createElement('span');
+          const div=document.createElement('div'),
+                sw=document.createElement('span');
           sw.style.cssText='display:inline-block;width:12px;height:12px;margin-right:5px;background:'+p.color;
           div.append(sw,p.name+(p.ready?' (Ready)':''));
           lobbyList.append(div);
         });
-        myNameInput.value      = players[myIndex].name;
-        myColorSelect.value    = players[myIndex].color;
-        myNameInput.disabled   = false;
-        myColorSelect.disabled = false;
-        readyBtn.disabled      = false;
-        readyBtn.textContent   = players[myIndex].ready?'Unready':'Ready';
-        if(isHost){
+        myIndex = players.findIndex(p=>p.id===clientId);
+        myNameInput.value    = players[myIndex].name;
+        myColorSelect.value  = players[myIndex].color;
+        myNameInput.disabled = myColorSelect.disabled = readyBtn.disabled = false;
+        readyBtn.textContent = players[myIndex].ready?'Unready':'Ready';
+        if(players[myIndex].id===clientId){
           hostStartBtn.style.display='inline-block';
-          hostStartBtn.disabled = !(players.length===maxPlayers&&players.every(x=>x.ready));
-        } else {
-          hostStartBtn.style.display='none';
+          hostStartBtn.disabled=!(players.length===maxPlayers&&players.every(x=>x.ready));
         }
       } else {
+        // apply host's grid size
+        if(mode==='join'&&typeof data.gridSizeDim==='number'){
+          const dim=data.gridSizeDim;
+          gridSize=dim+1;
+          canvas.width=cellPx*dim;
+          canvas.height=cellPx*dim;
+          gameContainer.style.width=canvas.width+'px';
+          gameContainer.style.height=canvas.height+'px';
+        }
         lobbyOverlay.style.display='none';
         wrapper.style.display='flex'; wrapper.classList.add('flex');
         chatSection.style.display='block';
-        initializeGame(); computeState(); draw(); renderChat(); updateInfo();
+        initializeGame();
+        lines.forEach(ln=>occupy(ln.sx,ln.sy,ln.ex,ln.ey,ln.playerIndex));
+        draw(); renderChat(); updateInfo();
       }
     }
 
-    // lobby & chat handlers
-    readyBtn.onclick      = ()=>{ players[myIndex].ready=!players[myIndex].ready; gameRef.update({players}); };
-    hostStartBtn.onclick  = ()=>gameRef.update({started:true});
-    myNameInput.onchange  = ()=>{ players[myIndex].name=myNameInput.value;   gameRef.update({players}); };
+    // lobby controls
+    readyBtn.onclick     = ()=>{ players[myIndex].ready=!players[myIndex].ready; gameRef.update({players}); };
+    hostStartBtn.onclick = ()=>gameRef.update({started:true,timestamp:firebase.firestore.FieldValue.serverTimestamp()});
+    myNameInput.onchange = ()=>{ players[myIndex].name=myNameInput.value; gameRef.update({players}); };
     myColorSelect.onchange= ()=>{ players[myIndex].color=myColorSelect.value; gameRef.update({players}); };
 
-    chatSendBtn.onclick = ()=>{ 
+    chatSendBtn.onclick = ()=>{
       const t=chatInput.value.trim(); if(!t) return;
-      const m={senderId:clientId,senderName:players[myIndex].name,text:t,timestamp:Date.now()};
-      gameRef.update({chat:firebase.firestore.FieldValue.arrayUnion(m)});
+      const m={ senderId:clientId, senderName:players[myIndex].name, text:t,
+                timestamp:firebase.firestore.FieldValue.serverTimestamp() };
+      gameRef.update({ chat:firebase.firestore.FieldValue.arrayUnion(m) });
       chatInput.value='';
     };
-    function renderChat(){
-      chatLog.innerHTML='';
-      chat.sort((a,b)=>a.timestamp-b.timestamp).forEach(m=>{
-        const d=document.createElement('div');
-        d.innerHTML=`<strong>${m.senderName}</strong> [${new Date(m.timestamp).toLocaleTimeString()}]: ${m.text}`;
-        chatLog.append(d);
-      });
-      chatLog.scrollTop=chatLog.scrollHeight;
-    }
 
-    // Restart
     restartBtn.onclick = ()=>{
       if(mode==='local'){
-        lines=[]; turnIndex=0;
-        initializeGame(); computeState(); draw(); updateInfo();
+        lines=[]; turnIndex=0; initializeGame(); draw(); updateInfo();
       } else {
-        gameRef.update({lines:[],turnIndex:0});
+        gameRef.update({ lines:[], turnIndex:0, timestamp:firebase.firestore.FieldValue.serverTimestamp() });
       }
     };
 
-    // Mouse events
+    // hover
+    canvas.addEventListener('mousemove',e=>{
+      const r=canvas.getBoundingClientRect();
+      hoverInfoEl.textContent = `Hovered: (${px2g(e.clientX-r.left)},${px2g(e.clientY-r.top)})`;
+    });
+    canvas.addEventListener('mouseleave',()=>hoverInfoEl.textContent='');
+
+    // preview & click
     let clickStart=null, hoverEnd=null;
-    canvas.addEventListener('mousemove', e=>{
+    canvas.addEventListener('mousemove',e=>{
       if(!clickStart) return;
       const r=canvas.getBoundingClientRect();
-      hoverEnd={x:px2g(e.clientX-r.left),y:px2g(e.clientY-r.top)};
+      hoverEnd={x:px2g(e.clientX-r.left), y:px2g(e.clientY-r.top)};
       draw();
+      ctx.beginPath(); ctx.setLineDash([5,5]); ctx.lineWidth=2; ctx.strokeStyle='gray';
+      ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));
+      ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y)); ctx.stroke();
+      ctx.setLineDash([]);
     });
-    canvas.addEventListener('click', async e=>{
-      if(mode!=='local' && !started) return;
-      if(mode!=='local' && turnIndex!==myIndex){
+    canvas.addEventListener('click',async e=>{
+      if(mode!=='local'&&!started) return;
+      if(mode!=='local'&&turnIndex!==myIndex){
         debugEl.textContent='Not your turn.'; clickStart=hoverEnd=null; return;
       }
-      const r=canvas.getBoundingClientRect();
-      const gx=px2g(e.clientX-r.left), gy=px2g(e.clientY-r.top);
-      if(!clickStart){
-        clickStart={x:gx,y:gy}; hoverEnd=null; return;
-      }
+      const r=canvas.getBoundingClientRect(),
+            gx=px2g(e.clientX-r.left), gy=px2g(e.clientY-r.top);
+      if(!clickStart){ clickStart={x:gx,y:gy}; hoverEnd=null; return; }
+
       const sx=clickStart.x, sy=clickStart.y,
             ex=(hoverEnd||{x:gx}).x,
             ey=(hoverEnd||{y:gy}).y;
-
       debugEl.textContent='';
-      if(!isStraight3(sx,sy,ex,ey)){
-        debugEl.textContent='Line must be straight & 3 long.';
-      }
-      else if(!isConnected(sx,sy,ex,ey)){
-        debugEl.textContent='New line must touch at least one point of existing lines.';
-      }
-      else if(!noNodeReuse(sx,sy,ex,ey)){
-        debugEl.textContent='Cannot cross another line’s interior.';
-      }
-      else if(!noTerritory(sx,sy,ex,ey)){
-        debugEl.textContent='Cannot draw in occupied territory.';
-      }
-      else if(!noMutualTouch(sx,sy,ex,ey)){
-        debugEl.textContent='Invalid: line cannot touch end and midpoint simultaneously.';
-      }
+
+      if(!isStraight3(sx,sy,ex,ey))             debugEl.textContent='Line must be sraight & 3 long.';
+      else if(!isConnected(sx,sy,ex,ey))        debugEl.textContent='New line must touch existing points.';
+      else if(!noNodeReuse(sx,sy,ex,ey))        debugEl.textContent='Cannot cross another line’s interior.';
+      else if(!noTerritory(sx,sy,ex,ey))        debugEl.textContent='Cannot draw in occupied territory.';
       else {
         if(mode!=='local'){
           const newLines=[...lines,{sx,sy,ex,ey,playerIndex:turnIndex}];
           const next=(turnIndex+1)%players.length;
-          await gameRef.update({lines:newLines,turnIndex:next});
+          await gameRef.update({ lines:newLines, turnIndex:next, timestamp:firebase.firestore.FieldValue.serverTimestamp() });
         } else {
           occupy(sx,sy,ex,ey,turnIndex);
           turnIndex=(turnIndex+1)%players.length;
-          draw();
-          updateInfo();
+          draw(); updateInfo();
         }
       }
-      clickStart=hoverEnd=null; draw();
+
+      clickStart=hoverEnd=null;
+      draw();
     });
 
   });
