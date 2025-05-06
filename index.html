@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Grid Territory — online play</title>
 
-<!-- NetplayJS -->
 <script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js"
         integrity="sha384-6Yb8LWAT488jwK+nIjvD4S5/poq1Xn69NYjH1RXKHoaUOaFJrKQ1rfGQgKm8oQjX"
         crossorigin="anonymous"></script>
@@ -15,7 +14,7 @@
   *     { box-sizing:border-box; }
   body,html{margin:0;padding:0;height:100%;font-family:sans-serif}
   #shell  {display:flex;height:100%;}
-  #left   {flex:none;width:var(--w);display:flex;flex-direction:column;align-items:center;justify-content:center}
+  #left   {flex:none;width:var(--w);display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;z-index:10}
   #right  {flex:1;display:flex;flex-direction:column;border-left:1px solid #ddd}
   #game-container{position:relative;width:var(--w);height:var(--h)}
   canvas  {position:absolute;top:0;left:0;background:#fff}
@@ -40,6 +39,14 @@
     text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)
   }
   #lobby button{margin-top:18px}
+
+  /* status badge once we intercept the overlay */
+  .np‑badge{
+    position:absolute;bottom:8px;left:8px;z-index:11;
+    background:rgba(0,0,0,.65);color:#fff;padding:4px 8px;
+    font-size:12px;border-radius:4px;pointer-events:none;
+    max-width:180px;line-height:1.3em;
+  }
 </style>
 </head>
 <body>
@@ -79,7 +86,7 @@
 </div>
 
 <script>
-/* ─────────── ORIGINAL SINGLE‑PAGE GAME (unchanged internals) ─────────── */
+/* ─────────── ORIGINAL BOARD LOGIC (unchanged) ─────────── */
 const $=id=>document.getElementById(id);
 const gridSize=21,cellPx=20,canvas=$('gameCanvas'),ctx=canvas.getContext('2d');
 let turn,lines,nodes,horiz,vert,cells,clickStart=null,hoverEnd=null,gameStarted=false;
@@ -169,27 +176,24 @@ canvas.addEventListener('click',e=>{
   else if(!noCross(sx,sy,ex,ey))$('debug').textContent='Line would illegally cross another.';
   else{
     occupy(sx,sy,ex,ey,turn);
-    sendMove({sx,sy,ex,ey,player:turn});            // broadcast
+    sendMove({sx,sy,ex,ey,player:turn});
     turn=turn===1?2:1;$('info').textContent=`Turn: Player ${turn}`;$('debug').textContent='';
   }
   clickStart=hoverEnd=null; draw();
 });
 
 /* ─────────── NETPLAY + CHAT ─────────── */
-let client;           // NetplayJS instance
-let myID   = 0;       // 0 or 1
+let client; let myID=0;
 
 function logChat(who,msg){
-  const d=document.createElement('div');
-  d.textContent=`${who}: ${msg}`;$('chatBox').appendChild(d);
-  $('chatBox').scrollTop=$('chatBox').scrollHeight;
+  const d=document.createElement('div'); d.textContent=`${who}: ${msg}`;
+  $('chatBox').appendChild(d); $('chatBox').scrollTop=$('chatBox').scrollHeight;
 }
 function sendMove(o){ client?.sendCustomMessage?.("move",o); }
 function sendChat(txt){ client?.sendCustomMessage?.("chat",{id:myID,msg:txt}); }
 
 $('chatForm').addEventListener('submit',e=>{
-  e.preventDefault();
-  const txt=$('chatInput').value.trim(); if(!txt)return;
+  e.preventDefault(); const txt=$('chatInput').value.trim(); if(!txt)return;
   logChat('You',txt); sendChat(txt); $('chatInput').value='';
 });
 
@@ -199,20 +203,30 @@ $('startBtn').onclick=async()=>{
   $('startBtn').disabled=true;
 
   try{
-    /* headless 1×1 game for the wrapper */
     class GhostGame extends netplayjs.Game{
-      static timestep=1000/60;
-      static canvasSize={width:1,height:1};
+      static timestep=1000/60; static canvasSize={width:1,height:1};
       tick(){} draw(){}
     }
     const wrapper=new netplayjs.LockstepWrapper(GhostGame);
     client=await wrapper.start({room});
     myID=client.getLocalPlayer().getID();
 
-    /* hide the extra canvas to kill the black screen */
+    /* 1.  hide the ghost canvas */
     wrapper.canvas.style.display='none';
 
-    /* handlers */
+    /* 2.  intercept NetplayJS overlay and shrink it */
+    function tameOverlay(){
+      const overlays=[...document.querySelectorAll('body>div')]
+        .filter(d=>d.textContent?.includes('NetplayJS') || d.textContent?.includes('minimized'));
+      overlays.forEach(div=>{
+        div.classList.add('np‑badge');
+        // Make sure it sits inside #left so it doesn't cover chat
+        document.getElementById('left').appendChild(div);
+      });
+    }
+    tameOverlay();               // first pass
+    setTimeout(tameOverlay,100);  // NetplayJS sometimes re‑adds it
+
     client.addCustomMessageHandler("move",m=>{
       occupy(m.sx,m.sy,m.ex,m.ey,m.player);
       turn=m.player===1?2:1;$('info').textContent=`Turn: Player ${turn}`; draw();
