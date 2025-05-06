@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Grid Territory — Netplay build</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Grid Territory</title>
 
 <style>
 html,body{margin:0;padding:0;height:100%;background:#fff;font-family:sans-serif}
@@ -12,22 +12,105 @@ h2{margin:8px 0}
 canvas{background:#fff}
 #info{margin-top:8px;font-weight:600}
 #debug{margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap}
-button{margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer}
+button{margin:6px;padding:8px 18px;font-size:1rem;cursor:pointer}
+#modeMenu{display:flex;gap:12px;margin-top:20px}
 </style>
 
-<!-- Netplay JS (0.4.x) -->
-<script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js"
-        crossorigin="anonymous"></script>
+<!-- NetplayJS (0.4.x) -->
+<script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js" crossorigin="anonymous"></script>
 
-<!-- game code -->
-<script type="module" src="./grid‑territory.js"></script>
+<!-- Game logic + mode‑bootstrap -->
+<script type="module">
+import { GridTerritory, gridSize, cellPx }  from './grid‑territory.js';
+import { GridInputReader, preview }         from './grid‑input.js';
+
+const canvas = document.getElementById('game');
+const info   = document.getElementById('info');
+const debug  = document.getElementById('debug');
+const restartBtn = document.getElementById('restart');
+
+const localBtn  = document.getElementById('localBtn');
+const onlineBtn = document.getElementById('onlineBtn');
+const modeMenu  = document.getElementById('modeMenu');
+
+let rafId        = null;        // requestAnimationFrame loop id (local mode)
+let game         = null;        // GridTerritory instance (local)
+let reader       = null;        // GridInputReader (local)
+let netWrapper   = null;        // RollbackWrapper (online)
+
+/* ─────────────  Local Play setup  ───────────── */
+function startLocal(){
+  modeMenu.style.display = 'none';
+  info.textContent = 'Turn: Player 1';
+  debug.textContent = '';
+
+  game   = new GridTerritory(canvas);
+  reader = new GridInputReader(canvas, gridSize, cellPx);
+
+  const players = [{getID:()=>0},{getID:()=>1}];   // dummy 2‑player handles
+
+  function loop(){
+    // same input fed to both dummy players – only the correct turn consumes it
+    const input = reader.getInput();
+    const map   = new Map(players.map(pl => [pl, input]));
+
+    game.tick(map);
+    game.draw();
+    rafId = requestAnimationFrame(loop);
+  }
+  loop();
+
+  /* restart simply resets deterministic state */
+  restartBtn.onclick = ()=>{
+    game.initState();
+    info.textContent = 'Turn: Player 1';
+  };
+}
+
+/* ─────────────  Online Play setup (NetplayJS)  ───────────── */
+function startOnline(){
+  modeMenu.style.display = 'none';
+  info.textContent = 'Connecting…';
+  debug.textContent= '';
+
+  netWrapper = new netplayjs.RollbackWrapper(GridTerritory,{
+    canvas,
+    createInputReader: ()=>new GridInputReader(canvas, gridSize, cellPx),
+
+    onStatus:s=>{
+      if(s.type==='lobby-created')
+        info.textContent = `Share link with friend → ${s.url}`;
+      else if(s.type==='player-joined')
+        info.textContent = 'Opponent connected – game on!';
+      else if(s.type==='synchronising')
+        info.textContent = 'Synchronising…';
+    },
+    onPlayerTurn:p=>{
+      info.textContent = `Turn: Player ${p.getID()+1}`;
+    },
+    onError:err=>{ debug.textContent = err; }
+  });
+
+  netWrapper.start();
+
+  restartBtn.onclick = ()=>netWrapper.reset();
+}
+
+/* choose mode */
+localBtn .onclick = startLocal;
+onlineBtn.onclick = startOnline;
+</script>
 </head>
 
 <body>
 <div id="wrapper">
-  <h2>Grid Territory (online versus)</h2>
+  <h2>Grid Territory</h2>
   <canvas id="game" width="420" height="420"></canvas>
-  <div id="info">Connecting…</div>
+  <div id="info">Choose play mode ↓</div>
+  <div id="modeMenu">
+    <button id="localBtn">Local Play</button>
+    <button id="onlineBtn">Online Play</button>
+  </div>
   <div id="debug"></div>
   <button id="restart">Restart Game</button>
 </div>
