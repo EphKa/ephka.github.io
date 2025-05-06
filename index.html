@@ -490,12 +490,28 @@
     myNameInput.onchange = ()=>{ players[myIndex].name=myNameInput.value; gameRef.update({players}); };
     myColorSelect.onchange= ()=>{ players[myIndex].color=myColorSelect.value; gameRef.update({players}); };
 
-    chatSendBtn.onclick = ()=>{
-      const t=chatInput.value.trim(); if(!t) return;
-      const m={ senderId:clientId, senderName:players[myIndex].name, text:t,
-                timestamp:firebase.firestore.FieldValue.serverTimestamp() };
-      gameRef.update({ chat:firebase.firestore.FieldValue.arrayUnion(m) });
-      chatInput.value='';
+    chatSendBtn.onclick = () => {
+      const text = chatInput.value.trim();
+      if (!text) return;
+
+      // use a real Timestamp, not a FieldValue sentinel
+      const now = firebase.firestore.Timestamp.now();
+
+      const message = {
+        senderId:   clientId,
+        senderName: players[myIndex].name,
+        text:       text,
+        timestamp:  now
+      };
+
+      // arrayUnion with a plain object is fine
+      gameRef.update({
+        chat: firebase.firestore.FieldValue.arrayUnion(message),
+        // still okay to bump the document's own timestamp
+        lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      chatInput.value = '';
     };
 
     restartBtn.onclick = ()=>{
