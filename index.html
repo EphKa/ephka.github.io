@@ -1,10 +1,10 @@
-<!--  Grid Territory – now peer‑to‑peer with NetplayJS  -->
+<!-- Grid Territory — same mechanics, now online with NetplayJS -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Grid Territory — online play (NetplayJS)</title>
+<title>Grid Territory — online play</title>
 
 <style>
   body,html{margin:0;padding:0;height:100%;font-family:sans-serif}
@@ -25,112 +25,115 @@
     <canvas id="gameCanvas" width="420" height="420"></canvas>
   </div>
 
-  <div id="info">Connecting…</div>
+  <div id="info">Waiting for opponent…</div>
   <div id="debug"></div>
   <button id="restartBtn" disabled>Restart Game</button>
 </div>
 
-<!-- NetplayJS – public bundle -->
+<!-- NetplayJS public bundle -->
 <script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js"
         integrity="sha384-6Yb8LWAT488jwK+nIjvD4S5/poq1Xn69NYjH1RXKHoaUOaFJrKQ1rfGQgKm8oQjX"
         crossorigin="anonymous"></script>
 
 <script>
-/* ── Short helpers ─────────────────────────────────────────────── */
-const $ = id => document.getElementById(id);
+/* ── constants & utility mappers (unchanged) ───────────────────── */
 const gridSize = 21, cellPx = 20;
 const px2g = px => Math.round(px / cellPx);
-const g2px = g  => g * cellPx;
+const g2px =  g  => g * cellPx;
+const $ = id => document.getElementById(id);
 
-/* ── NetplayJS game class ──────────────────────────────────────── */
+/* ── NetplayJS game wrapper for the original mechanics ─────────── */
 class GridTerritoryGame extends netplayjs.Game {
 
-  /* --- static configuration for NetplayJS --- */
-  static timestep   = 1000 / 60;          // 60 FPS
+  /* required static config */
+  static timestep   = 1000 / 60;                    // 60 FPS
   static canvasSize = { width: 420, height: 420 };
   static numPlayers = { min: 2, max: 2 };
 
-  constructor (canvas, players) {
+  constructor (canvas/*HTMLCanvasElement*/, players) {
     super();
     this.canvas = canvas;
     this.ctx    = canvas.getContext('2d');
 
-    /* persistent state – autoserialised by NetplayJS  */
-    this.turn  = 1;
-    this.lines = [];
-    this.nodes = Array.from({length:gridSize}, () => Array(gridSize    ).fill(false));
-    this.horiz = Array.from({length:gridSize}, () => Array(gridSize-1 ).fill(false));
-    this.vert  = Array.from({length:gridSize-1}, () => Array(gridSize ).fill(false));
-    this.cells = Array.from({length:gridSize-1}, () => Array(gridSize-1).fill(0));
-
-    /* transient, local‑only UI helpers (NOT serialised) */
-    this.clickStart = null;
-    this.hoverEnd   = null;
-
-    /* attach mouse listeners on the local canvas */
-    this._bindLocalPointer();
+    this.initState();              // same arrays & vars as your local version
+    this.bindPointer();            // local mouse → queueLocalInput
+    this.draw();                   // initial board
   }
 
-  /* ---------- local pointer → input packets ---------- */
-  _bindLocalPointer () {
-    const rectOf = () => this.canvas.getBoundingClientRect();
+  /* complete state reset — called at construction or wrapper.restart() */
+  initState () {
+    this.turn  = 1;
+    this.lines = [];
+    this.nodes = Array.from({length:gridSize}, ()=>Array(gridSize    ).fill(false));
+    this.horiz = Array.from({length:gridSize}, ()=>Array(gridSize-1 ).fill(false));
+    this.vert  = Array.from({length:gridSize-1}, ()=>Array(gridSize ).fill(false));
+    this.cells = Array.from({length:gridSize-1}, ()=>Array(gridSize-1).fill(0));
+
+    /* UI‑only, not serialised */
+    this.clickStart = null;
+    this.hoverEnd   = null;
+  }
+
+  /* attach mouse listeners that build finished‑drag packets */
+  bindPointer () {
+    const rect  = () => this.canvas.getBoundingClientRect();
 
     this.canvas.addEventListener('mousemove', e => {
       if (!this.clickStart) return;
-      const r = rectOf();
-      this.hoverEnd = {
-        x: px2g(e.clientX - r.left),
-        y: px2g(e.clientY - r.top)
-      };
+      const r = rect();
+      this.hoverEnd = { x:px2g(e.clientX - r.left), y:px2g(e.clientY - r.top) };
+      this.draw();
     });
 
-    /* clicks become per‑frame LineInput objects sent via NetplayJS */
     this.canvas.addEventListener('click', e => {
-      const r  = rectOf();
+      const r  = rect();
       const gx = px2g(e.clientX - r.left);
       const gy = px2g(e.clientY - r.top);
 
-      /* first click = anchor node */
-      if (!this.clickStart) {
-        this.clickStart = { x: gx, y: gy };
-        this.hoverEnd   = null;
-        return;
-      }
+      /* first click just stores the anchor node */
+      if (!this.clickStart) { this.clickStart = {x:gx,y:gy}; this.hoverEnd=null; return; }
 
-      /* second click forms the attempt  */
+      /* second click – propose a 3‑segment line */
       const line = {
         sx: this.clickStart.x, sy: this.clickStart.y,
-        ex: (this.hoverEnd || {x:gx}).x,
-        ey: (this.hoverEnd || {y:gy}).y
+        ex: (this.hoverEnd||{x:gx}).x,
+        ey: (this.hoverEnd||{y:gy}).y
       };
 
-      /* enqueue for this frame – wrapper defined in bootstrap section */
-      window.__wrapper.queueLocalInput(line);
+      /* quick local legality check to give instant user feedback        */
+      if (!this._isLegalLine(line.sx,line.sy,line.ex,line.ey)) {
+        $('debug').textContent =
+          'Illegal move: must be straight 3 cells, touch a node, avoid crossing.';
+      } else {
+        window.__wrapper.queueLocalInput(line);        // send to peer
+        $('debug').textContent = '';
+      }
 
-      /* clear local drag */
       this.clickStart = this.hoverEnd = null;
+      this.draw();                                     // clear preview
     });
   }
 
-  /* ---------- frame step – apply every player’s inputs ---------- */
+  /* -------------- NetplayJS frame step -------------------------- */
   tick (playerInputs) {
-    for (const [player, inp] of playerInputs.entries()) {
-      if (!inp) continue;                 // player idle this frame
-      const p = player.getID() === 0 ? 1 : 2;   // map to 1/2 labels
+    /* whose turn should act this frame? 0‑based Netplay IDs */
+    const expected = (this.turn === 1 ? 0 : 1);
 
-      if (this._isLegalLine(inp.sx, inp.sy, inp.ex, inp.ey)) {
-        this._occupy(inp.sx, inp.sy, inp.ex, inp.ey, p);
+    for (const [player, inp] of playerInputs.entries()) {
+      if (player.getID() !== expected || !inp) continue;
+
+      /* apply move if still legal in current state */
+      if (this._isLegalLine(inp.sx,inp.sy,inp.ex,inp.ey)) {
+        this._occupy(inp.sx,inp.sy,inp.ex,inp.ey, this.turn);
         this.turn = this.turn === 1 ? 2 : 1;
       }
     }
-
-    /* redraw every frame so both peers stay visually in‑sync */
-    this.draw(this.canvas);
+    this.draw();
   }
 
-  /* ---------- geometry & rules – lifted from original code ------- */
-  _isStraight3 (sx,sy,ex,ey) {
-    const dx = Math.abs(ex-sx), dy = Math.abs(ey-sy);
+  /* ---------------- original helper/logic methods --------------- */
+  _isStraight3 (sx,sy,ex,ey){
+    const dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);
     return (dx===3&&dy===0)||(dx===0&&dy===3);
   }
   _interior (sx,sy,ex,ey){
@@ -138,18 +141,16 @@ class GridTerritoryGame extends netplayjs.Game {
       ? [{x:sx,y:Math.min(sy,ey)+1},{x:sx,y:Math.min(sy,ey)+2}]
       : [{x:Math.min(sx,ex)+1,y:sy},{x:Math.min(sx,ex)+2,y:sy}];
   }
-  _noCross (sx,sy,ex,ey) {
-    const ni = this._interior(sx,sy,ex,ey);
-    return !this.lines.some(ln => this._interior(ln.sx,ln.sy,ln.ex,ln.ey)
-      .some(a => ni.some(b => a.x===b.x && a.y===b.y)));
+  _noCross (sx,sy,ex,ey){
+    const ni=this._interior(sx,sy,ex,ey);
+    return !this.lines.some(ln=>this._interior(ln.sx,ln.sy,ln.ex,ln.ey)
+      .some(a=>ni.some(b=>a.x===b.x&&a.y===b.y)));
   }
   _touches (sx,sy,ex,ey){
     return this.lines.length===0 || this.nodes[sy][sx] || this.nodes[ey][ex];
   }
   _isLegalLine (sx,sy,ex,ey){
-    return this._isStraight3(sx,sy,ex,ey) &&
-           this._touches   (sx,sy,ex,ey) &&
-           this._noCross   (sx,sy,ex,ey);
+    return this._isStraight3(sx,sy,ex,ey) && this._touches(sx,sy,ex,ey) && this._noCross(sx,sy,ex,ey);
   }
 
   _occupy (sx,sy,ex,ey,p){
@@ -195,26 +196,26 @@ class GridTerritoryGame extends netplayjs.Game {
     }
     for(let y=0;y<gridSize-1;y++)
       for(let x=0;x<gridSize-1;x++)
-        if(!visited[y][x] && this.cells[y][x]===0) this.cells[y][x] = p;
+        if(!visited[y][x] && this.cells[y][x]===0) this.cells[y][x]=p;
   }
 
-  /* ---------- drawing – same as the original, plus drag preview ---- */
+  /* --------------------------- drawing -------------------------- */
   draw () {
-    const ctx = this.ctx;
+    const ctx=this.ctx;
     ctx.clearRect(0,0,420,420);
 
     /* grid */
     ctx.strokeStyle='#ddd'; ctx.lineWidth=1;
-    for (let i=0;i<=gridSize;i++){
+    for(let i=0;i<=gridSize;i++){
       const p=g2px(i);
-      ctx.beginPath(); ctx.moveTo(p,0);   ctx.lineTo(p,420); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0,p);   ctx.lineTo(420,p); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,420); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(420,p); ctx.stroke();
     }
 
     /* filled cells */
-    for (let y=0;y<gridSize-1;y++)
-      for (let x=0;x<gridSize-1;x++)
-        if (this.cells[y][x]>0){
+    for(let y=0;y<gridSize-1;y++)
+      for(let x=0;x<gridSize-1;x++)
+        if(this.cells[y][x]>0){
           ctx.globalAlpha=.2;
           ctx.fillStyle=this.cells[y][x]==1?'red':'blue';
           ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);
@@ -222,48 +223,43 @@ class GridTerritoryGame extends netplayjs.Game {
         }
 
     /* lines */
-    for (const ln of this.lines){
-      ctx.beginPath();
-      ctx.lineWidth=4;
+    for(const ln of this.lines){
+      ctx.beginPath(); ctx.lineWidth=4;
       ctx.strokeStyle=ln.player==1?'red':'blue';
       ctx.moveTo(g2px(ln.sx),g2px(ln.sy));
-      ctx.lineTo(g2px(ln.ex),g2px(ln.ey));
-      ctx.stroke();
+      ctx.lineTo(g2px(ln.ex),g2px(ln.ey)); ctx.stroke();
     }
 
     /* local drag preview */
-    if (this.clickStart && this.hoverEnd){
+    if(this.clickStart && this.hoverEnd){
       ctx.beginPath();
-      ctx.setLineDash([5,5]);
-      ctx.lineWidth=2;
-      ctx.strokeStyle='gray';
+      ctx.setLineDash([5,5]); ctx.lineWidth=2; ctx.strokeStyle='gray';
       ctx.moveTo(g2px(this.clickStart.x),g2px(this.clickStart.y));
       ctx.lineTo(g2px(this.hoverEnd.x),g2px(this.hoverEnd.y));
-      ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.stroke(); ctx.setLineDash([]);
     }
+
+    /* status banner */
+    $('info').textContent = `Turn: Player ${this.turn}`;
   }
 }
 
-/* ── Bootstrapping the wrapper & simple status UI ─────────────── */
+/* ── bootstrap NetplayJS wrapper & simple UI signals ──────────── */
 window.addEventListener('DOMContentLoaded', () => {
+  /* make the wrapper global so the game’s pointer handler can call it */
+  window.__wrapper = new netplayjs.RollbackWrapper(GridTerritoryGame);
+  window.__wrapper.start();
 
-  const wrapper = new netplayjs.RollbackWrapper(GridTerritoryGame);
-  window.__wrapper = wrapper;                // expose for queueLocalInput
-  wrapper.start();
+  const info=$('info'), dbg=$('debug'), restart=$('restartBtn');
 
-  /* update little status banner */
-  const info = $('info'), dbg=$('debug'), restartBtn=$('restartBtn');
-
-  wrapper.on('connected', () => {
-    info.textContent = 'Both players connected – Player 1 begins!';
-    restartBtn.disabled = false;
+  window.__wrapper.on('connected', () => {
+    info.textContent = 'Both players ready — Player 1 starts!';
+    restart.disabled = false;
   });
 
-  /* custom debug helper so both sides see rule violations */
-  wrapper.on('exception', e => { dbg.textContent = e.message || e; });
+  window.__wrapper.on('exception', e => { dbg.textContent = e.message||e; });
 
-  restartBtn.onclick = () => { wrapper.restart(); dbg.textContent=''; };
+  restart.onclick = () => { dbg.textContent=''; window.__wrapper.restart(); };
 });
 </script>
 </body>
