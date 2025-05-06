@@ -1,221 +1,240 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
+<meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Grid Territory — online play (overlay‑free)</title>
+<title>Grid Territory — online play</title>
 
-<!-- NetplayJS (signalling + lockstep netcode) -->
+<!-- NetplayJS -->
 <script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js"
         integrity="sha384-6Yb8LWAT488jwK+nIjvD4S5/poq1Xn69NYjH1RXKHoaUOaFJrKQ1rfGQgKm8oQjX"
         crossorigin="anonymous"></script>
 
 <style>
-  :root { --w:420px; --h:420px; }
-  *     { box-sizing:border-box; margin:0; }
-  html,body{height:100%;font-family:sans-serif}
-  #shell  {display:flex;height:100%;}
-  #left   {flex:none;width:var(--w);display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
-  #right  {flex:1;display:flex;flex-direction:column;border-left:1px solid #ddd}
-
-  /* ---------- original board ---------- */
-  #game-container{position:relative;width:var(--w);height:var(--h)}
-  canvas  {position:absolute;top:0;left:0;background:#fff}
-  #info   {margin-top:8px;font-weight:600}
-  #debug  {margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap}
-  button  {margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer}
-
-  /* ---------- chat ---------- */
-  #chatBox{flex:1;overflow-y:auto;padding:8px 12px}
-  #chatBox div{margin:4px 0}
-  #chatForm{display:flex;border-top:1px solid #ddd}
-  #chatInput{flex:1;padding:8px;border:none;font:inherit}
-  #chatSend{border:none;background:#0070f3;color:#fff;padding:8px 16px}
-
-  /* ---------- lobby ---------- */
-  #lobby{
-    position:fixed;inset:0;background:rgba(0,0,0,.55);
-    display:flex;align-items:center;justify-content:center;z-index:20
-  }
-  #lobbyInner{
-    background:#fff;padding:24px 32px;border-radius:8px;max-width:320px;width:90%;
-    text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)
-  }
-  #lobby button{margin-top:18px}
-
-  /* ---------- overlay suppression ---------- */
-  /* hide *any* extra NetplayJS canvas immediately */
-  body > canvas:not(#gameCanvas){display:none!important;}
-
-  /* small badge look when we keep the overlay text */
-  .np‑badge{
-    position:absolute!important;bottom:8px!important;left:8px!important;
-    max-width:180px;background:rgba(0,0,0,.65);color:#fff;
-    padding:4px 8px;font-size:12px;line-height:1.3em;border-radius:4px;
-    pointer-events:none;z-index:11;
-  }
+  /* --- original look ------------------------------------ */
+  html,body { margin:0;height:100%;font-family:sans-serif;background:#fff }
+  #wrapper { display:flex;flex-direction:column;align-items:center;
+             justify-content:center;height:100% }
+  h2       { margin:8px 0 }
+  #game-container { position:relative;width:420px;height:420px }
+  /* the play canvas will be moved here at runtime */
+  #info    { margin-top:8px;font-weight:600 }
+  #debug   { margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap }
+  button   { margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer }
+  /* --- tiny lobby --------------------------------------- */
+  #lobby  { position:fixed;inset:0;display:flex;align-items:center;
+            justify-content:center;background:rgba(0,0,0,.6);z-index:20 }
+  #lobbyInner { background:#fff;padding:24px 32px;border-radius:8px;
+                text-align:center;max-width:320px;width:90% }
+  #lobby code { word-break:break-all;font-size:.8em }
 </style>
 </head>
 <body>
 
-<!-- LOBBY -->
-<div id="lobby">
-  <div id="lobbyInner">
-    <h2>Grid Territory online</h2>
-    <p id="inviteText" style="font-size:.9em"></p>
-    <input id="roomInput" style="width:100%;padding:6px" placeholder="Room code (optional)">
-    <button id="startBtn">Start&nbsp;game</button>
-    <p id="lobbyStatus" style="color:#a00;margin-top:8px"></p>
-  </div>
+<!-- visual wrapper (same as the local build) -->
+<div id="wrapper">
+  <h2>Grid Territory</h2>
+  <div id="game-container"></div>
+  <div id="info">Game not started</div>
+  <div id="debug"></div>
+  <button id="restartBtn">Restart Game</button>
 </div>
 
-<div id="shell">
-  <!-- GAME (left) -->
-  <div id="left">
-    <h2 style="margin-bottom:8px">Grid Territory</h2>
-    <div id="game-container"><canvas id="gameCanvas" width="420" height="420"></canvas></div>
-    <div id="info">Game not started</div>
-    <div id="debug"></div>
-    <button id="restartBtn">Restart Game (local)</button>
-  </div>
-
-  <!-- CHAT (right) -->
-  <div id="right">
-    <h3 style="margin:8px 12px;">Chat</h3>
-    <div id="chatBox"></div>
-    <form id="chatForm">
-      <input id="chatInput" autocomplete="off" placeholder="type…">
-      <button id="chatSend" type="submit">Send</button>
-    </form>
+<!-- quick lobby -->
+<div id="lobby">
+  <div id="lobbyInner">
+    <p>Share this link with your opponent:</p>
+    <code id="roomLink"></code><br>
+    <button id="startBtn">Got it – start!</button>
   </div>
 </div>
 
 <script>
-/* ────────── original single‑player code (unchanged) ────────── */
-const $=id=>document.getElementById(id);
-const gridSize=21,cellPx=20,canvas=$('gameCanvas'),ctx=canvas.getContext('2d');
-let turn,lines,nodes,horiz,vert,cells,clickStart=null,hoverEnd=null,gameStarted=false;
+/* ── constants identical to local build ── */
+const gridSize=21, cellPx=20;
+const g2px = g=>g*cellPx, px2g = px=>Math.round(px/cellPx);
 
-const px2g=px=>Math.round(px/cellPx), g2px=g=>g*cellPx;
-function isStraight3(sx,sy,ex,ey){const dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);return(dx===3&&dy===0)||(dx===0&&dy===3);}
-const interior=(sx,sy,ex,ey)=>sx===ex?[{x:sx,y:Math.min(sy,ey)+1},{x:sx,y:Math.min(sy,ey)+2}]:[{x:Math.min(sx,ex)+1,y:sy},{x:Math.min(sx,ex)+2,y:sy}];
-function noCross(sx,sy,ex,ey){const ni=interior(sx,sy,ex,ey);return!lines.some(l=>interior(l.sx,l.sy,l.ex,l.ey).some(a=>ni.some(b=>a.x===b.x&&a.y===b.y)));}
-const touches=(sx,sy,ex,ey)=>lines.length===0||nodes[sy][sx]||nodes[ey][ex];
+/* ── NetplayJS Game class ── */
+class GridTerritoryGame extends netplayjs.Game {
+  /* Netplay options */
+  static timestep   = 1000/60;
+  static canvasSize = { width:420, height:420 };
 
-function initGameState(){
-  turn=1;lines=[];
-  nodes=Array.from({length:gridSize},()=>Array(gridSize).fill(false));
-  horiz=Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
-  vert =Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
-  cells=Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
-  clickStart=hoverEnd=null;gameStarted=true;
-  $('debug').textContent='';$('info').textContent='Turn: Player 1';draw();
-}
-$('restartBtn').onclick=initGameState;initGameState();
-
-function occupy(sx,sy,ex,ey,p){
-  lines.push({sx,sy,ex,ey,player:p});
-  if(sx===ex){const x=sx,y0=Math.min(sy,ey);for(let d=0;d<3;d++){vert[y0+d][x]=true;nodes[y0+d][x]=nodes[y0+d+1][x]=true;}}
-  else{const y=sy,x0=Math.min(sx,ex);for(let d=0;d<3;d++){horiz[y][x0+d]=true;nodes[y][x0+d]=nodes[y][x0+1+d]=true;}}
-  fillTerritories(p);
-}
-function fillTerritories(p){
-  const visited=Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(false)),q=[];
-  for(let i=0;i<gridSize-1;i++)[[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]].forEach(([x,y])=>{
-    if(!visited[y][x]){visited[y][x]=true;q.push({x,y});}});
-  const pass=(x,y,nx,ny)=>x===nx?!horiz[Math.min(y,ny)+1][x]:!vert[y][Math.min(x,nx)+1];
-  while(q.length){const{ x,y}=q.shift();
-    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
-      const nx=x+dx,ny=y+dy;
-      if(nx>=0&&nx<gridSize-1&&ny>=0&&ny<gridSize-1&&!visited[ny][nx]&&pass(x,y,nx,ny)){
-        visited[ny][nx]=true;q.push({x:nx,y:ny});}});
+  constructor(canvas, players){
+    super();
+    this.ctx = canvas.getContext('2d');
+    this.players = players;
+    this.reset();
+    /* per‑player click anchors for two clicks */
+    this.anchors = new Map();   // playerID -> {x,y}|null
   }
-  for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
-    if(!visited[y][x]&&cells[y][x]===0)cells[y][x]=p;
-}
-function draw(){
-  ctx.clearRect(0,0,420,420);
-  ctx.strokeStyle='#ddd';ctx.lineWidth=1;
-  for(let i=0;i<=gridSize;i++){const p=g2px(i);
-    ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,420);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(420,p);ctx.stroke();}
-  for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
-    if(cells[y][x]>0){ctx.globalAlpha=.2;ctx.fillStyle=cells[y][x]==1?'red':'blue';
-      ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;}
-  for(const ln of lines){ctx.beginPath();ctx.lineWidth=4;ctx.strokeStyle=ln.player==1?'red':'blue';
-    ctx.moveTo(g2px(ln.sx),g2px(ln.sy));ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();}
-  if(clickStart&&hoverEnd){ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle='gray';
-    ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y));ctx.stroke();ctx.setLineDash([]);}
-}
 
-canvas.addEventListener('mousemove',e=>{
-  if(!clickStart||!gameStarted)return;
-  const r=canvas.getBoundingClientRect();
-  hoverEnd={x:px2g(e.clientX-r.left),y:px2g(e.clientY-r.top)};draw();
-});
-canvas.addEventListener('click',e=>{
-  if(!gameStarted)return;
-  const r=canvas.getBoundingClientRect();
-  const gx=px2g(e.clientX-r.left),gy=px2g(e.clientY-r.top);
-  if(!clickStart){clickStart={x:gx,y:gy};hoverEnd=null;return;}
-  const {x:sx,y:sy}=clickStart;const{ x:ex,y:ey}=hoverEnd||{x:gx,y:gy};
-  if(!isStraight3(sx,sy,ex,ey))$('debug').textContent='Line must be straight and exactly 3 cells long.';
-  else if(!touches(sx,sy,ex,ey))$('debug').textContent='Line must touch an existing node.';
-  else if(!noCross(sx,sy,ex,ey))$('debug').textContent='Line would illegally cross another.';
-  else{occupy(sx,sy,ex,ey,turn);sendMove({sx,sy,ex,ey,player:turn});
-    turn=3-turn;$('info').textContent=`Turn: Player ${turn}`;$('debug').textContent='';}
-  clickStart=hoverEnd=null;draw();
-});
-
-/* ────────── networking & chat ────────── */
-let client,myID=0;
-function logChat(who,msg){const d=document.createElement('div');d.textContent=`${who}: ${msg}`;$('chatBox').appendChild(d);$('chatBox').scrollTop=$('chatBox').scrollHeight;}
-function sendMove(o){client?.sendCustomMessage?.('move',o);}
-function sendChat(t){client?.sendCustomMessage?.('chat',{id:myID,msg:t});}
-$('chatForm').addEventListener('submit',e=>{e.preventDefault();const t=$('chatInput').value.trim();if(!t)return;logChat('You',t);sendChat(t);$('chatInput').value='';});
-
-/* ------- start button ------- */
-$('startBtn').onclick=async()=>{
-  const room=($('roomInput').value||location.hash.replace('#','')||crypto.randomUUID()).trim();
-  location.hash=room;$('inviteText').innerHTML=`Share this URL:<br><code>${location.href}</code>`;$('startBtn').disabled=true;
-
-  try{
-    /* head‑less 1×1 canvas so NetplayJS is happy */
-    class GhostGame extends netplayjs.Game{
-      static timestep=1000/60;static canvasSize={width:1,height:1};tick(){}draw(){}
+  /* ------------ game‑state helpers (unchanged logic) -------------- */
+  reset(){
+    this.turn = 1;
+    this.lines = [];
+    this.nodes = Array.from({length:gridSize},()=>Array(gridSize).fill(false));
+    this.horiz = Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
+    this.vert  = Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
+    this.cells = Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
+    this.debugMsg = '';
+    this.updateDom();
+  }
+  isStraight3(sx,sy,ex,ey){const dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);return(dx===3&&dy===0)||(dx===0&&dy===3);}
+  interior(sx,sy,ex,ey){return sx===ex?[{x:sx,y:Math.min(sy,ey)+1},{x:sx,y:Math.min(sy,ey)+2}]
+                                   :[{x:Math.min(sx,ex)+1,y:sy},{x:Math.min(sx,ex)+2,y:sy}];}
+  noCross(sx,sy,ex,ey){
+    const ni=this.interior(sx,sy,ex,ey);
+    return !this.lines.some(l=>this.interior(l.sx,l.sy,l.ex,l.ey)
+      .some(a=>ni.some(b=>a.x===b.x&&a.y===b.y)));
+  }
+  touches(sx,sy,ex,ey){
+    return this.lines.length===0||this.nodes[sy][sx]||this.nodes[ey][ex];
+  }
+  occupy(sx,sy,ex,ey,p){
+    this.lines.push({sx,sy,ex,ey,player:p});
+    if(sx===ex){
+      const x=sx,y0=Math.min(sy,ey);
+      for(let d=0;d<3;d++){this.vert[y0+d][x]=true;this.nodes[y0+d][x]=this.nodes[y0+d+1][x]=true;}
+    }else{
+      const y=sy,x0=Math.min(sx,ex);
+      for(let d=0;d<3;d++){this.horiz[y][x0+d]=true;this.nodes[y][x0+d]=this.nodes[y][x0+1+d]=true;}
     }
-    const wrapper=new netplayjs.LockstepWrapper(GhostGame);
-    client=await wrapper.start({room});
-    myID=client.getLocalPlayer().getID();
+    this.fillTerritories(p);
+  }
+  fillTerritories(p){
+    const visited=Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(false));
+    const q=[];
+    for(let i=0;i<gridSize-1;i++)
+      [[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]]
+      .forEach(([x,y])=>{if(!visited[y][x]){visited[y][x]=true;q.push({x,y});}});
+    const pass=(x,y,nx,ny)=>x===nx?!this.horiz[Math.min(y,ny)+1][x]:!this.vert[y][Math.min(x,nx)+1];
+    while(q.length){
+      const{ x,y}=q.shift();
+      [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+        const nx=x+dx,ny=y+dy;
+        if(nx>=0&&nx<gridSize-1&&ny>=0&&ny<gridSize-1&&!visited[ny][nx]&&pass(x,y,nx,ny)){
+          visited[ny][nx]=true;q.push({x:nx,y:ny});}});
+    }
+    for(let y=0;y<gridSize-1;y++)
+      for(let x=0;x<gridSize-1;x++)
+        if(!visited[y][x]&&this.cells[y][x]===0)this.cells[y][x]=p;
+  }
 
-    /* hide the ghost canvas immediately */
-    wrapper.canvas.style.display='none';
+  /* ------------ Netplay tick ------------ */
+  tick(playerInputs){
+    for(const [player,input] of playerInputs.entries()){
+      const id = player.getID();          // 0 or 1
+      if(this.turn-1 !== id) continue;    // only active player can act
 
-    /* observe for any NetplayJS overlays and tame them */
-    const BADGE_MODE=true;          // set false to hide completely
-    const observer=new MutationObserver(muts=>{
-      muts.forEach(m=>{
-        [...m.addedNodes].forEach(node=>{
-          if(node.nodeType!==1)return;
-          const el=node;
-          // look for the characteristic text snippets NetplayJS uses
-          if(el.textContent?.match(/Netcode Algorithm|minimized or hidden/i)){
-            if(BADGE_MODE){
-              el.classList.add('np‑badge');
-              el.style.width='auto';el.style.height='auto';el.style.background='';
-              document.getElementById('left').appendChild(el);
-            }else{el.style.display='none';}
+      const gx = px2g(input.mouseX());
+      const gy = px2g(input.mouseY());
+
+      /* hover preview for local user only */
+      if(player.isLocal() && this.anchors.has(id))
+        this.hover = {x:gx,y:gy};
+      else if(player.isLocal())
+        this.hover = null;
+
+      if(input.mouseJustPressed(0)){      // left click
+        if(!this.anchors.has(id)){        // first click
+          this.anchors.set(id,{x:gx,y:gy});
+        }else{                            // second click → attempt line
+          const {x:sx,y:sy}=this.anchors.get(id);
+          const ex=gx, ey=gy;
+
+          if(!this.isStraight3(sx,sy,ex,ey)){
+            this.debugMsg='Line must be straight and exactly 3 cells long.';
+          }else if(!this.touches(sx,sy,ex,ey)){
+            this.debugMsg='Line must touch an existing node.';
+          }else if(!this.noCross(sx,sy,ex,ey)){
+            this.debugMsg='Line would illegally cross another.';
+          }else{
+            this.occupy(sx,sy,ex,ey,this.turn);
+            this.turn = 3-this.turn;      // swap player 1 ↔ 2
+            this.debugMsg='';
           }
-        });
-      });
-    });
-    observer.observe(document.body,{childList:true,subtree:true});
+          this.anchors.delete(id);
+          this.hover=null;
+          this.updateDom();
+        }
+      }
+    }
+  }
 
-    client.addCustomMessageHandler('move',m=>{occupy(m.sx,m.sy,m.ex,m.ey,m.player);turn=m.player===1?2:1;$('info').textContent=`Turn: Player ${turn}`;draw();});
-    client.addCustomMessageHandler('chat',p=>{logChat(p.id===myID?'You':'Opponent',p.msg);});
-    $('lobby').style.display='none';
-  }catch(err){$('lobbyStatus').textContent='Connection failed – '+err.message;$('startBtn').disabled=false;}
-};
+  /* ------------ draw (runs every frame) ------------- */
+  draw(canvas){
+    const ctx=this.ctx;
+    ctx.clearRect(0,0,420,420);
+
+    /* grid */
+    ctx.strokeStyle='#ddd';ctx.lineWidth=1;
+    for(let i=0;i<=gridSize;i++){
+      const p=g2px(i);
+      ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,420);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(420,p);ctx.stroke();
+    }
+
+    /* filled cells */
+    for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
+      if(this.cells[y][x]>0){
+        ctx.globalAlpha=.2;ctx.fillStyle=this.cells[y][x]==1?'red':'blue';
+        ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;
+      }
+
+    /* lines */
+    for(const ln of this.lines){
+      ctx.beginPath();ctx.lineWidth=4;ctx.strokeStyle=ln.player==1?'red':'blue';
+      ctx.moveTo(g2px(ln.sx),g2px(ln.sy));ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();
+    }
+
+    /* drag preview */
+    if(this.hover){
+      const id=this.turn-1;
+      const a=this.anchors.get(id);
+      if(a){
+        ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle='gray';
+        ctx.moveTo(g2px(a.x),g2px(a.y));ctx.lineTo(g2px(this.hover.x),g2px(this.hover.y));
+        ctx.stroke();ctx.setLineDash([]);
+      }
+    }
+  }
+
+  /* ------------ tiny helper to push state to DOM ------------ */
+  updateDom(){
+    document.getElementById('info').textContent = `Turn: Player ${this.turn}`;
+    document.getElementById('debug').textContent = this.debugMsg;
+  }
+}
+
+/* ── little utility: move Netplay’s canvas into #game-container ── */
+function placeCanvas(wrapper){
+  const container=document.getElementById('game-container');
+  wrapper.canvas.style.position='absolute';
+  wrapper.canvas.style.top='0';wrapper.canvas.style.left='0';
+  container.appendChild(wrapper.canvas);
+}
+
+/* ── DOM ready ── */
+document.addEventListener('DOMContentLoaded',()=>{
+
+  /* quick room‑code handling */
+  if(!location.hash){ location.hash = Math.random().toString(36).slice(2,8); }
+  document.getElementById('roomLink').textContent = location.href;
+
+  document.getElementById('startBtn').onclick= async ()=>{
+    /* create the wrapper & start Netplay */
+    const wrapper = new netplayjs.LockstepWrapper(GridTerritoryGame);
+    await wrapper.start({ room: location.hash.slice(1) });
+    placeCanvas(wrapper);
+
+    /* restart button → synced reset (simple page reload) */
+    document.getElementById('restartBtn').onclick = ()=>location.reload();
+
+    /* dismiss lobby */
+    document.getElementById('lobby').style.display='none';
+  };
+});
 </script>
 </body>
 </html>
