@@ -11,27 +11,18 @@
         crossorigin="anonymous"></script>
 
 <style>
-  /* --- original look ------------------------------------ */
-  html,body { margin:0;height:100%;font-family:sans-serif;background:#fff }
-  #wrapper { display:flex;flex-direction:column;align-items:center;
-             justify-content:center;height:100% }
-  h2       { margin:8px 0 }
-  #game-container { position:relative;width:420px;height:420px }
-  /* the play canvas will be moved here at runtime */
-  #info    { margin-top:8px;font-weight:600 }
-  #debug   { margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap }
-  button   { margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer }
-  /* --- tiny lobby --------------------------------------- */
-  #lobby  { position:fixed;inset:0;display:flex;align-items:center;
-            justify-content:center;background:rgba(0,0,0,.6);z-index:20 }
-  #lobbyInner { background:#fff;padding:24px 32px;border-radius:8px;
-                text-align:center;max-width:320px;width:90% }
-  #lobby code { word-break:break-all;font-size:.8em }
+  /* ― original look ― */
+  html,body{margin:0;height:100%;font-family:sans-serif;background:#fff}
+  #wrapper{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
+  h2{margin:8px 0}
+  #game-container{position:relative;width:420px;height:420px}
+  /* the Netplay canvas will sit here */
+  #info{margin-top:8px;font-weight:600}
+  #debug{margin-top:8px;font-size:.8em;color:#a00;white-space:pre-wrap}
+  button{margin-top:12px;padding:8px 20px;font-size:1rem;cursor:pointer}
 </style>
 </head>
 <body>
-
-<!-- visual wrapper (same as the local build) -->
 <div id="wrapper">
   <h2>Grid Territory</h2>
   <div id="game-container"></div>
@@ -40,71 +31,54 @@
   <button id="restartBtn">Restart Game</button>
 </div>
 
-<!-- quick lobby -->
-<div id="lobby">
-  <div id="lobbyInner">
-    <p>Share this link with your opponent:</p>
-    <code id="roomLink"></code><br>
-    <button id="startBtn">Got it – start!</button>
-  </div>
-</div>
-
 <script>
-/* ── constants identical to local build ── */
+/* ── geometry helpers from your local build ── */
 const gridSize=21, cellPx=20;
-const g2px = g=>g*cellPx, px2g = px=>Math.round(px/cellPx);
+const g2px=g=>g*cellPx, px2g=px=>Math.round(px/cellPx);
 
-/* ── NetplayJS Game class ── */
-class GridTerritoryGame extends netplayjs.Game {
-  /* Netplay options */
+/* ── NetplayJS Game ── */
+class GridTerritoryGame extends netplayjs.Game{
   static timestep   = 1000/60;
-  static canvasSize = { width:420, height:420 };
+  static canvasSize = {width:420,height:420};
 
-  constructor(canvas, players){
+  constructor(canvas,players){
     super();
-    this.ctx = canvas.getContext('2d');
-    this.players = players;
+    this.ctx=canvas.getContext('2d');
+    this.players=players;
+    this.anchors=new Map(); // per‑player first‑click anchor
+    this.hover=null;
     this.reset();
-    /* per‑player click anchors for two clicks */
-    this.anchors = new Map();   // playerID -> {x,y}|null
   }
 
-  /* ------------ game‑state helpers (unchanged logic) -------------- */
   reset(){
-    this.turn = 1;
-    this.lines = [];
+    this.turn=1;
+    this.debugMsg='';
+    this.lines=[];
     this.nodes = Array.from({length:gridSize},()=>Array(gridSize).fill(false));
     this.horiz = Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
     this.vert  = Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
     this.cells = Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
-    this.debugMsg = '';
     this.updateDom();
   }
+
+  /* unchanged helpers */
   isStraight3(sx,sy,ex,ey){const dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);return(dx===3&&dy===0)||(dx===0&&dy===3);}
   interior(sx,sy,ex,ey){return sx===ex?[{x:sx,y:Math.min(sy,ey)+1},{x:sx,y:Math.min(sy,ey)+2}]
                                    :[{x:Math.min(sx,ex)+1,y:sy},{x:Math.min(sx,ex)+2,y:sy}];}
-  noCross(sx,sy,ex,ey){
-    const ni=this.interior(sx,sy,ex,ey);
-    return !this.lines.some(l=>this.interior(l.sx,l.sy,l.ex,l.ey)
-      .some(a=>ni.some(b=>a.x===b.x&&a.y===b.y)));
-  }
-  touches(sx,sy,ex,ey){
-    return this.lines.length===0||this.nodes[sy][sx]||this.nodes[ey][ex];
-  }
+  noCross(sx,sy,ex,ey){const ni=this.interior(sx,sy,ex,ey);
+    return!this.lines.some(l=>this.interior(l.sx,l.sy,l.ex,l.ey)
+      .some(a=>ni.some(b=>a.x===b.x&&a.y===b.y)));}
+  touches(sx,sy,ex,ey){return this.lines.length===0||this.nodes[sy][sx]||this.nodes[ey][ex];}
   occupy(sx,sy,ex,ey,p){
     this.lines.push({sx,sy,ex,ey,player:p});
-    if(sx===ex){
-      const x=sx,y0=Math.min(sy,ey);
-      for(let d=0;d<3;d++){this.vert[y0+d][x]=true;this.nodes[y0+d][x]=this.nodes[y0+d+1][x]=true;}
-    }else{
-      const y=sy,x0=Math.min(sx,ex);
-      for(let d=0;d<3;d++){this.horiz[y][x0+d]=true;this.nodes[y][x0+d]=this.nodes[y][x0+1+d]=true;}
-    }
+    if(sx===ex){const x=sx,y0=Math.min(sy,ey);
+      for(let d=0;d<3;d++){this.vert[y0+d][x]=true;this.nodes[y0+d][x]=this.nodes[y0+d+1][x]=true;}}
+    else{const y=sy,x0=Math.min(sx,ex);
+      for(let d=0;d<3;d++){this.horiz[y][x0+d]=true;this.nodes[y][x0+d]=this.nodes[y][x0+1+d]=true;}}
     this.fillTerritories(p);
   }
   fillTerritories(p){
-    const visited=Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(false));
-    const q=[];
+    const visited=Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(false)),q=[];
     for(let i=0;i<gridSize-1;i++)
       [[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]]
       .forEach(([x,y])=>{if(!visited[y][x]){visited[y][x]=true;q.push({x,y});}});
@@ -116,58 +90,47 @@ class GridTerritoryGame extends netplayjs.Game {
         if(nx>=0&&nx<gridSize-1&&ny>=0&&ny<gridSize-1&&!visited[ny][nx]&&pass(x,y,nx,ny)){
           visited[ny][nx]=true;q.push({x:nx,y:ny});}});
     }
-    for(let y=0;y<gridSize-1;y++)
-      for(let x=0;x<gridSize-1;x++)
-        if(!visited[y][x]&&this.cells[y][x]===0)this.cells[y][x]=p;
+    for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
+      if(!visited[y][x]&&this.cells[y][x]===0)this.cells[y][x]=p;
   }
 
-  /* ------------ Netplay tick ------------ */
+  /* ---- netcode tick ---- */
   tick(playerInputs){
     for(const [player,input] of playerInputs.entries()){
-      const id = player.getID();          // 0 or 1
-      if(this.turn-1 !== id) continue;    // only active player can act
+      if(this.turn-1!==player.getID())continue; // only whose turn can act
 
-      const gx = px2g(input.mouseX());
-      const gy = px2g(input.mouseY());
+      const gx=px2g(input.mouseX()), gy=px2g(input.mouseY());
 
-      /* hover preview for local user only */
-      if(player.isLocal() && this.anchors.has(id))
-        this.hover = {x:gx,y:gy};
-      else if(player.isLocal())
-        this.hover = null;
+      if(player.isLocal()){
+        if(this.anchors.has(player.getID())) this.hover={x:gx,y:gy};
+        else this.hover=null;
+      }
 
-      if(input.mouseJustPressed(0)){      // left click
-        if(!this.anchors.has(id)){        // first click
-          this.anchors.set(id,{x:gx,y:gy});
-        }else{                            // second click → attempt line
-          const {x:sx,y:sy}=this.anchors.get(id);
-          const ex=gx, ey=gy;
-
-          if(!this.isStraight3(sx,sy,ex,ey)){
-            this.debugMsg='Line must be straight and exactly 3 cells long.';
-          }else if(!this.touches(sx,sy,ex,ey)){
-            this.debugMsg='Line must touch an existing node.';
-          }else if(!this.noCross(sx,sy,ex,ey)){
-            this.debugMsg='Line would illegally cross another.';
-          }else{
+      if(input.mouseJustPressed(0)){       // left click
+        if(!this.anchors.has(player.getID())){      // first click
+          this.anchors.set(player.getID(),{x:gx,y:gy});
+        }else{                                    // second click
+          const {x:sx,y:sy}=this.anchors.get(player.getID());
+          const ex=gx,ey=gy;
+          if(!this.isStraight3(sx,sy,ex,ey))      this.debugMsg='Line must be straight and exactly 3 cells long.';
+          else if(!this.touches(sx,sy,ex,ey))     this.debugMsg='Line must touch an existing node.';
+          else if(!this.noCross(sx,sy,ex,ey))     this.debugMsg='Line would illegally cross another.';
+          else{
             this.occupy(sx,sy,ex,ey,this.turn);
-            this.turn = 3-this.turn;      // swap player 1 ↔ 2
-            this.debugMsg='';
+            this.turn=3-this.turn; this.debugMsg='';
           }
-          this.anchors.delete(id);
-          this.hover=null;
-          this.updateDom();
+          this.anchors.delete(player.getID());
+          this.hover=null; this.updateDom();
         }
       }
     }
   }
 
-  /* ------------ draw (runs every frame) ------------- */
+  /* ---- draw ---- */
   draw(canvas){
     const ctx=this.ctx;
     ctx.clearRect(0,0,420,420);
 
-    /* grid */
     ctx.strokeStyle='#ddd';ctx.lineWidth=1;
     for(let i=0;i<=gridSize;i++){
       const p=g2px(i);
@@ -175,23 +138,19 @@ class GridTerritoryGame extends netplayjs.Game {
       ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(420,p);ctx.stroke();
     }
 
-    /* filled cells */
     for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)
       if(this.cells[y][x]>0){
         ctx.globalAlpha=.2;ctx.fillStyle=this.cells[y][x]==1?'red':'blue';
         ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;
       }
 
-    /* lines */
     for(const ln of this.lines){
       ctx.beginPath();ctx.lineWidth=4;ctx.strokeStyle=ln.player==1?'red':'blue';
       ctx.moveTo(g2px(ln.sx),g2px(ln.sy));ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();
     }
 
-    /* drag preview */
     if(this.hover){
-      const id=this.turn-1;
-      const a=this.anchors.get(id);
+      const a=this.anchors.get(this.turn-1);
       if(a){
         ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle='gray';
         ctx.moveTo(g2px(a.x),g2px(a.y));ctx.lineTo(g2px(this.hover.x),g2px(this.hover.y));
@@ -200,40 +159,28 @@ class GridTerritoryGame extends netplayjs.Game {
     }
   }
 
-  /* ------------ tiny helper to push state to DOM ------------ */
   updateDom(){
-    document.getElementById('info').textContent = `Turn: Player ${this.turn}`;
-    document.getElementById('debug').textContent = this.debugMsg;
+    document.getElementById('info').textContent=`Turn: Player ${this.turn}`;
+    document.getElementById('debug').textContent=this.debugMsg;
   }
 }
 
-/* ── little utility: move Netplay’s canvas into #game-container ── */
-function placeCanvas(wrapper){
-  const container=document.getElementById('game-container');
-  wrapper.canvas.style.position='absolute';
-  wrapper.canvas.style.top='0';wrapper.canvas.style.left='0';
-  container.appendChild(wrapper.canvas);
-}
-
-/* ── DOM ready ── */
+/* ── start once DOM is ready ── */
 document.addEventListener('DOMContentLoaded',()=>{
+  /* find or create room code in URL hash */
+  if(!location.hash){ location.hash = '#' + crypto.randomUUID(); }
+  const room=location.hash.slice(1);
 
-  /* quick room‑code handling */
-  if(!location.hash){ location.hash = Math.random().toString(36).slice(2,8); }
-  document.getElementById('roomLink').textContent = location.href;
+  /* make wrapper, start, then move its canvas into our layout */
+  const wrapper=new netplayjs.LockstepWrapper(GridTerritoryGame);
+  wrapper.start({room}).then(()=>{
+    const container=document.getElementById('game-container');
+    wrapper.canvas.style.position='absolute';wrapper.canvas.style.top='0';wrapper.canvas.style.left='0';
+    container.appendChild(wrapper.canvas);
+  });
 
-  document.getElementById('startBtn').onclick= async ()=>{
-    /* create the wrapper & start Netplay */
-    const wrapper = new netplayjs.LockstepWrapper(GridTerritoryGame);
-    await wrapper.start({ room: location.hash.slice(1) });
-    placeCanvas(wrapper);
-
-    /* restart button → synced reset (simple page reload) */
-    document.getElementById('restartBtn').onclick = ()=>location.reload();
-
-    /* dismiss lobby */
-    document.getElementById('lobby').style.display='none';
-  };
+  /* restart button just reloads the page (simple + synced) */
+  document.getElementById('restartBtn').onclick=()=>location.reload();
 });
 </script>
 </body>
