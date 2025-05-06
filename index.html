@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Grid Territory — online play</title>
 
-<!-- NetplayJS (latest tag is still 0.4.1) -->
+<!-- NetplayJS -->
 <script src="https://unpkg.com/netplayjs@0.4.1/dist/netplay.js"
         integrity="sha384-6Yb8LWAT488jwK+nIjvD4S5/poq1Xn69NYjH1RXKHoaUOaFJrKQ1rfGQgKm8oQjX"
-        crossorigin="anonymous"></script> <!-- :contentReference[oaicite:0]{index=0} -->
+        crossorigin="anonymous"></script>
 
 <style>
   :root { --w:420px; --h:420px; }
@@ -30,7 +30,7 @@
   #chatInput{flex:1;padding:8px;border:none;font:inherit}
   #chatSend{border:none;background:#0070f3;color:#fff;padding:8px 16px}
 
-  /* very small modal lobby */
+  /* lobby */
   #lobby{
     position:fixed;inset:0;background:rgba(0,0,0,.55);
     display:flex;align-items:center;justify-content:center;
@@ -44,7 +44,7 @@
 </head>
 <body>
 
-<!‑‑ 1️⃣  LOBBY / invite screen ‑‑>
+<!-- LOBBY -->
 <div id="lobby">
   <div id="lobbyInner">
     <h2>Grid Territory online</h2>
@@ -56,7 +56,7 @@
 </div>
 
 <div id="shell">
-  <!‑‑ 2️⃣  your unchanged board ‑‑>
+  <!-- GAME (left) -->
   <div id="left">
     <h2>Grid Territory</h2>
     <div id="game-container">
@@ -67,9 +67,9 @@
     <button id="restartBtn">Restart Game (local)</button>
   </div>
 
-  <!‑‑ 3️⃣  chat panel ‑‑>
+  <!-- CHAT (right) -->
   <div id="right">
-    <h3 style="margin:8px 12px">Chat</h3>
+    <h3 style="margin:8px 12px;">Chat</h3>
     <div id="chatBox"></div>
     <form id="chatForm">
       <input id="chatInput" autocomplete="off" placeholder="type…">
@@ -79,7 +79,7 @@
 </div>
 
 <script>
-/* ─────────────────────────  ORIGINAL GAME (UNTOUCHED) ───────────────────────── */
+/* ─────────── ORIGINAL SINGLE‑PAGE GAME (unchanged internals) ─────────── */
 const $=id=>document.getElementById(id);
 const gridSize=21,cellPx=20,canvas=$('gameCanvas'),ctx=canvas.getContext('2d');
 let turn,lines,nodes,horiz,vert,cells,clickStart=null,hoverEnd=null,gameStarted=false;
@@ -102,31 +102,55 @@ function initGameState(){
   draw();
 }
 $('restartBtn').onclick=initGameState;
-initGameState();  // local play always available
+initGameState();
 
-function occupy(sx,sy,ex,ey,p){          /* <‑‑ UNCHANGED */
+function occupy(sx,sy,ex,ey,p){
   lines.push({sx,sy,ex,ey,player:p});
   if(sx===ex){const x=sx,y0=Math.min(sy,ey);for(let d=0;d<3;d++){vert[y0+d][x]=true;nodes[y0+d][x]=nodes[y0+d+1][x]=true;}}
   else{const y=sy,x0=Math.min(sx,ex);for(let d=0;d<3;d++){horiz[y][x0+d]=true;nodes[y][x0+d]=nodes[y][x0+1+d]=true;}}
   fillTerritories(p);
 }
-function fillTerritories(p){                 /* <‑‑ UNCHANGED */
+function fillTerritories(p){
   const visited=Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(false)),q=[];
-  for(let i=0;i<gridSize-1;i++)[[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]].forEach(([x,y])=>{if(!visited[y][x]){visited[y][x]=true;q.push({x,y});}});
+  for(let i=0;i<gridSize-1;i++)[[0,i],[gridSize-2,i],[i,0],[i,gridSize-2]]
+    .forEach(([x,y])=>{if(!visited[y][x]){visited[y][x]=true;q.push({x,y});}});
   const pass=(x,y,nx,ny)=>x===nx?!horiz[Math.min(y,ny)+1][x]:!vert[y][Math.min(x,nx)+1];
-  while(q.length){const{ x,y}=q.shift();[[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{const nx=x+dx,ny=y+dy;if(nx>=0&&nx<gridSize-1&&ny>=0&&ny<gridSize-1&&!visited[ny][nx]&&pass(x,y,nx,ny)){visited[ny][nx]=true;q.push({x:nx,y:ny});}});}
-  for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)if(!visited[y][x]&&cells[y][x]===0)cells[y][x]=p;
+  while(q.length){const{ x,y}=q.shift();
+    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+      const nx=x+dx,ny=y+dy;
+      if(nx>=0&&nx<gridSize-1&&ny>=0&&ny<gridSize-1&&!visited[ny][nx]&&pass(x,y,nx,ny)){
+        visited[ny][nx]=true;q.push({x:nx,y:ny});
+      }});
+  }
+  for(let y=0;y<gridSize-1;y++)
+    for(let x=0;x<gridSize-1;x++)
+      if(!visited[y][x]&&cells[y][x]===0)cells[y][x]=p;
 }
 function draw(){
   ctx.clearRect(0,0,420,420);
   ctx.strokeStyle='#ddd';ctx.lineWidth=1;
-  for(let i=0;i<=gridSize;i++){const p=g2px(i);ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,420);ctx.stroke();ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(420,p);ctx.stroke();}
-  for(let y=0;y<gridSize-1;y++)for(let x=0;x<gridSize-1;x++)if(cells[y][x]>0){ctx.globalAlpha=.2;ctx.fillStyle=cells[y][x]==1?'red':'blue';ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;}
-  for(const ln of lines){ctx.beginPath();ctx.lineWidth=4;ctx.strokeStyle=ln.player==1?'red':'blue';ctx.moveTo(g2px(ln.sx),g2px(ln.sy));ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();}
-  if(clickStart&&hoverEnd){ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle='gray';ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y));ctx.stroke();ctx.setLineDash([]);}
+  for(let i=0;i<=gridSize;i++){
+    const p=g2px(i);
+    ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,420);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(420,p);ctx.stroke();
+  }
+  for(let y=0;y<gridSize-1;y++)
+    for(let x=0;x<gridSize-1;x++)
+      if(cells[y][x]>0){
+        ctx.globalAlpha=.2;ctx.fillStyle=cells[y][x]==1?'red':'blue';
+        ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;
+      }
+  for(const ln of lines){
+    ctx.beginPath();ctx.lineWidth=4;ctx.strokeStyle=ln.player==1?'red':'blue';
+    ctx.moveTo(g2px(ln.sx),g2px(ln.sy));ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();
+  }
+  if(clickStart&&hoverEnd){
+    ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle='gray';
+    ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y));
+    ctx.stroke();ctx.setLineDash([]);
+  }
 }
 
-/* handle mouse exactly as before, but now broadcast a move when it succeeds */
 canvas.addEventListener('mousemove',e=>{
   if(!clickStart||!gameStarted)return;
   const r=canvas.getBoundingClientRect();
@@ -145,47 +169,58 @@ canvas.addEventListener('click',e=>{
   else if(!noCross(sx,sy,ex,ey))$('debug').textContent='Line would illegally cross another.';
   else{
     occupy(sx,sy,ex,ey,turn);
-    sendMove({sx,sy,ex,ey,player:turn});            // <‑‑ NEW
+    sendMove({sx,sy,ex,ey,player:turn});            // broadcast
     turn=turn===1?2:1;$('info').textContent=`Turn: Player ${turn}`;$('debug').textContent='';
   }
   clickStart=hoverEnd=null; draw();
 });
 
-/* ─────────────────────────  NETPLAY  + CHAT  ───────────────────────── */
-let client;        // NetplayJS stub
-let myID   = 0;    // 0 or 1 in a two‑player room
+/* ─────────── NETPLAY + CHAT ─────────── */
+let client;           // NetplayJS instance
+let myID   = 0;       // 0 or 1
 
 function logChat(who,msg){
   const d=document.createElement('div');
   d.textContent=`${who}: ${msg}`;$('chatBox').appendChild(d);
   $('chatBox').scrollTop=$('chatBox').scrollHeight;
 }
-
-/* send helpers that silently no‑op when still solo */
 function sendMove(o){ client?.sendCustomMessage?.("move",o); }
 function sendChat(txt){ client?.sendCustomMessage?.("chat",{id:myID,msg:txt}); }
 
-/* chat form */
 $('chatForm').addEventListener('submit',e=>{
   e.preventDefault();
   const txt=$('chatInput').value.trim(); if(!txt)return;
   logChat('You',txt); sendChat(txt); $('chatInput').value='';
 });
 
-/* connect once the user clicks “Start game” */
 $('startBtn').onclick=async()=>{
   const room=($('roomInput').value||location.hash.replace('#','')||crypto.randomUUID()).trim();
   location.hash=room; $('inviteText').innerHTML=`Share this URL:<br><code>${location.href}</code>`;
   $('startBtn').disabled=true;
+
   try{
-    /* RollbackWrapper is overkill for a turn game, Lockstep keeps it simple */
-    class Dummy extends netplayjs.Game{static timestep=1000/60;static canvasSize={width:1,height:1};tick(){}draw(){}}
-    const wrap=new netplayjs.LockstepWrapper(Dummy);
-    client=await wrap.start({room});
-    myID=client.getLocalPlayer().getID();       // 0 or 1
-    /* incoming messages */
-    client.addCustomMessageHandler("move",m=>{occupy(m.sx,m.sy,m.ex,m.ey,m.player);turn=m.player===1?2:1;$('info').textContent=`Turn: Player ${turn}`;draw();});
-    client.addCustomMessageHandler("chat",p=>{logChat(p.id===myID?'You':'Opponent',p.msg);});
+    /* headless 1×1 game for the wrapper */
+    class GhostGame extends netplayjs.Game{
+      static timestep=1000/60;
+      static canvasSize={width:1,height:1};
+      tick(){} draw(){}
+    }
+    const wrapper=new netplayjs.LockstepWrapper(GhostGame);
+    client=await wrapper.start({room});
+    myID=client.getLocalPlayer().getID();
+
+    /* hide the extra canvas to kill the black screen */
+    wrapper.canvas.style.display='none';
+
+    /* handlers */
+    client.addCustomMessageHandler("move",m=>{
+      occupy(m.sx,m.sy,m.ex,m.ey,m.player);
+      turn=m.player===1?2:1;$('info').textContent=`Turn: Player ${turn}`; draw();
+    });
+    client.addCustomMessageHandler("chat",p=>{
+      logChat(p.id===myID?'You':'Opponent',p.msg);
+    });
+
     $('lobby').style.display='none';
   }catch(err){
     $('lobbyStatus').textContent='Connection failed – '+err.message;
