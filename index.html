@@ -176,9 +176,10 @@
       lines.forEach(ln => occupy(ln.sx,ln.sy,ln.ex,ln.ey,ln.playerIndex));
     }
 
-    // Snap px→grid
+    // Snap px→grid, CLAMPED to [0, gridSize-1]
     function px2g(px){
-      return Math.floor((px + cellPx/2)/cellPx);
+      const g = Math.floor((px + cellPx/2)/cellPx);
+      return Math.min(Math.max(g, 0), gridSize-1);
     }
     function g2px(g){ return g*cellPx; }
 
@@ -209,7 +210,7 @@
       _occupy(sx,sy,ex,ey,p);
     }
 
-    // Flood-fill with fixed vertical indexing
+    // Flood-fill
     function fillTerritories(player){
       const visited = Array.from({length:gridSize-1}, ()=>Array(gridSize-1).fill(false));
       const queue = [];
@@ -224,7 +225,7 @@
       const canPass = (x,y,nx,ny) =>
         x===nx
           ? !horiz[Math.min(y,ny)+1][x]
-          : !vert[y][Math.min(x,nx)+1];  // <-- FIXED here
+          : !vert[y][Math.min(x,nx)+1];
 
       while(queue.length){
         const {x,y} = queue.shift();
@@ -260,6 +261,7 @@
         .every(pt=>!interiorNodes[pt.y][pt.x]);
     }
     function noTerritory(sx,sy,ex,ey){
+      // unchanged logic, but with valid indices now
       if(sx===ex){
         const x=sx, y0=Math.min(sy,ey);
         for(let d=0;d<3;d++){
@@ -277,6 +279,27 @@
       }
       return true;
     }
+
+    // NEW: forbid mutual end‐to‐midpoint touches
+    function noMutualTouch(sx,sy,ex,ey){
+      const newEnds = [{x:sx,y:sy},{x:ex,y:ey}];
+      const newMids = getInterior(sx,sy,ex,ey);
+      for(const ln of lines){
+        const extEnds = [{x:ln.sx,y:ln.sy},{x:ln.ex,y:ln.ey}];
+        const extMids = getInterior(ln.sx,ln.sy,ln.ex,ln.ey);
+        const endTouchesMid = extMids.some(em =>
+          newEnds.some(ne => ne.x===em.x && ne.y===em.y)
+        );
+        const midTouchesEnd = newMids.some(nm =>
+          extEnds.some(ee => ee.x===nm.x && ee.y===nm.y)
+        );
+        if(endTouchesMid && midTouchesEnd){
+          return false;
+        }
+      }
+      return true;
+    }
+
     function isConnected(sx,sy,ex,ey){
       if(!lines.length) return true;
       const pts = [{x:sx,y:sy},{x:ex,y:ey},...getInterior(sx,sy,ex,ey)];
@@ -326,7 +349,21 @@
       }
     }
 
-    // Lobby & chat logic unchanged from previous version…
+    // Update the info bar with turn + territory counts
+    function updateInfo(){
+      const counts = players.map(() => 0);
+      cells.forEach(row =>
+        row.forEach(c =>
+          c>0 && counts[c-1]++
+        )
+      );
+      let text = `Turn: ${players[turnIndex].name}`;
+      const parts = players.map((p,i)=>`${p.name}: ${counts[i]}`);
+      text += ' | Territories: ' + parts.join(', ');
+      infoEl.textContent = text;
+    }
+
+    // Setup & lobby logic
     function updateConfig(){
       mode = document.querySelector('input[name=mode]:checked').value;
       hostConfig.style.display = mode!=='join' ? 'block' : 'none';
@@ -365,9 +402,8 @@
     };
 
     function startLocal(){
-      initializeGame(); computeState(); draw();
+      initializeGame(); computeState(); draw(); updateInfo();
       wrapper.style.display='flex'; wrapper.classList.add('flex');
-      infoEl.textContent = `Turn: ${players[turnIndex].name}`;
     }
 
     async function initOnline(gameId,isHost){
@@ -430,8 +466,7 @@
         lobbyOverlay.style.display='none';
         wrapper.style.display='flex'; wrapper.classList.add('flex');
         chatSection.style.display='block';
-        initializeGame(); computeState(); draw(); renderChat();
-        infoEl.textContent=`Turn: ${players[turnIndex].name}`;
+        initializeGame(); computeState(); draw(); renderChat(); updateInfo();
       }
     }
 
@@ -441,7 +476,7 @@
     myNameInput.onchange  = ()=>{ players[myIndex].name=myNameInput.value;   gameRef.update({players}); };
     myColorSelect.onchange= ()=>{ players[myIndex].color=myColorSelect.value; gameRef.update({players}); };
 
-    chatSendBtn.onclick = ()=>{
+    chatSendBtn.onclick = ()=>{ 
       const t=chatInput.value.trim(); if(!t) return;
       const m={senderId:clientId,senderName:players[myIndex].name,text:t,timestamp:Date.now()};
       gameRef.update({chat:firebase.firestore.FieldValue.arrayUnion(m)});
@@ -461,8 +496,7 @@
     restartBtn.onclick = ()=>{
       if(mode==='local'){
         lines=[]; turnIndex=0;
-        initializeGame(); computeState(); draw();
-        infoEl.textContent=`Turn: ${players[turnIndex].name}`;
+        initializeGame(); computeState(); draw(); updateInfo();
       } else {
         gameRef.update({lines:[],turnIndex:0});
       }
@@ -503,6 +537,9 @@
       else if(!noTerritory(sx,sy,ex,ey)){
         debugEl.textContent='Cannot draw in occupied territory.';
       }
+      else if(!noMutualTouch(sx,sy,ex,ey)){
+        debugEl.textContent='Invalid: line cannot touch end and midpoint simultaneously.';
+      }
       else {
         if(mode!=='local'){
           const newLines=[...lines,{sx,sy,ex,ey,playerIndex:turnIndex}];
@@ -511,8 +548,8 @@
         } else {
           occupy(sx,sy,ex,ey,turnIndex);
           turnIndex=(turnIndex+1)%players.length;
-          infoEl.textContent=`Turn: ${players[turnIndex].name}`;
           draw();
+          updateInfo();
         }
       }
       clickStart=hoverEnd=null; draw();
