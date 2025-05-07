@@ -337,29 +337,37 @@
     // draw everything
     function draw(){
       ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.strokeStyle='#ddd'; ctx.lineWidth=1;
-      for(let i=0;i<gridSize;i++){
-        const p=g2px(i);
-        ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,canvas.height); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(canvas.width,p);   ctx.stroke();
+
+      // 1) grid
+      ctx.strokeStyle = '#ddd';
+      ctx.lineWidth   = 1;
+      for (let i = 0; i < gridSize; i++) {
+        const p = g2px(i);
+        ctx.beginPath(); ctx.moveTo(p,0);             ctx.lineTo(p,canvas.height); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0,p);             ctx.lineTo(canvas.width,p);   ctx.stroke();
       }
-      // territories
-      for(let y=0;y<gridSize-1;y++){
-        for(let x=0;x<gridSize-1;x++){
-          if(cells[y][x]>0){
-            ctx.globalAlpha=0.2;
-            ctx.fillStyle=players[cells[y][x]-1].color;
-            ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);
-            ctx.globalAlpha=1;
+
+      // 2) territories
+      cells.forEach((row,y) => 
+        row.forEach((c,x) => {
+          if (c > 0) {
+            ctx.globalAlpha = 0.2;
+            ctx.fillStyle   = players[c-1].color;
+            ctx.fillRect(g2px(x), g2px(y), cellPx, cellPx);
+            ctx.globalAlpha = 1;
           }
-        }
-      }
-      // lines
-      lines.forEach(ln=>{
-        ctx.beginPath(); ctx.lineWidth=4;
-        ctx.strokeStyle=players[ln.playerIndex].color;
-        ctx.moveTo(g2px(ln.sx),g2px(ln.sy));
-        ctx.lineTo(g2px(ln.ex),g2px(ln.ey));
+        })
+      );
+
+      // 3) lines on top
+      lines.forEach(ln => {
+        ctx.beginPath();
+        ctx.setLineDash([]);        // solid
+        ctx.lineWidth   = 4;
+        ctx.lineCap     = 'round';  // smoother ends
+        ctx.strokeStyle = players[ln.playerIndex].color;
+        ctx.moveTo(g2px(ln.sx), g2px(ln.sy));
+        ctx.lineTo(g2px(ln.ex), g2px(ln.ey));
         ctx.stroke();
       });
     }
