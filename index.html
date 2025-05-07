@@ -478,7 +478,11 @@
     }
     function updatePossibleMoves(){
       const c = countPossibleMoves();
-      if(c===0 && !gameOver) endGame();
+
+      const pc = $('possibleCount');
+      if (pc) pc.textContent = c;
+
+      if (c === 0 && !gameOver) endGame();
     }
 
     async function endGame(){
