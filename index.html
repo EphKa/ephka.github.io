@@ -24,12 +24,10 @@
     #main { display:flex; flex:1; }
     #game-container { position:relative; }
     canvas {
-      position:absolute;
-      top:0; left:0;
-      background:#fff;
-      /* Invisible one-cell border for easier hits */
+      position:absolute; top:0; left:0; background:#fff;
+      /* invisible 1-cell hit border */
       border:20px solid transparent;
-      box-sizing: content-box; /* ensure border sits outside drawing area */
+      box-sizing: content-box;
     }
     #sidebar { margin-left:20px; width:250px; }
     #chatLog {
@@ -41,9 +39,7 @@
     #debug { margin-top:8px; font-size:.8em; color:#a00; white-space:pre-wrap; }
     button { margin-top:8px; padding:6px 12px; font-size:.9rem; cursor:pointer; }
     select,input[type="text"],input[type="number"] { width:100%; padding:4px; box-sizing:border-box; }
-    /* Tighter spacing for local setup rows */
     #localPlayersConfig .player-row { margin-bottom:4px; }
-    /* Sidebar sections */
     #scoreboard, #lastResult, #possibleMovesDisplay { margin-top:16px; }
     #scoreboard ul { list-style:none; padding-left:0; }
   </style>
@@ -140,23 +136,19 @@
         <div id="hoverInfo"></div>
       </div>
       <div id="sidebar">
-        <!-- Chat -->
         <div id="chatSection" style="display:none;">
           <h4>Chat</h4>
           <div id="chatLog"></div>
           <input id="chatInput" type="text" placeholder="Type message..."/>
           <button id="chatSendBtn">Send</button>
         </div>
-        <!-- Scoreboard -->
         <div id="scoreboard">
           <h4>Scoreboard</h4>
           <ul id="scoreList"></ul>
         </div>
-        <!-- Possible moves left -->
         <div id="possibleMovesDisplay">
           Possible moves: <span id="possibleCount">0</span>
         </div>
-        <!-- Last game result -->
         <div id="lastResult">
           <h4>Last Game Result</h4>
           <div id="lastResultText">—</div>
@@ -218,21 +210,20 @@
     let mode, gridSize, maxPlayers, myIndex, gameRef, started=false;
     let players=[], lines=[], chatArr=[], turnIndex=0;
     let endpoints,mids,horiz,vert,cells;
-    const cellPx = 20, borderPx = 20; // must match CSS border
+    const cellPx = 20, borderPx = 20; // match CSS border
 
-    // Ping: single rectangle, blink twice
+    // Ping: single rect, blink twice
     let pings = [], pingMode=false, pingToggle=true;
-
-    // Game over flag
     let gameOver = false;
 
-    // Show/hide setup panels
+    // **Fixed** updateConfig: guard for null
     function updateConfig(){
-      mode = document.querySelector('input[name=mode]:checked').value;
+      const sel = document.querySelector('input[name=mode]:checked');
+      mode = sel ? sel.value : 'local';
       gridSizeConfig.style.display = (mode==='join')?'none':'block';
-      localConfig .style.display = (mode==='local')?'block':'none';
-      hostConfig  .style.display = (mode==='host')?'block':'none';
-      joinConfig  .style.display = (mode==='join')?'block':'none';
+      localConfig .style.display   = (mode==='local')?'block':'none';
+      hostConfig  .style.display   = (mode==='host')?'block':'none';
+      joinConfig  .style.display   = (mode==='join')?'block':'none';
     }
     modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
     updateConfig();
