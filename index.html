@@ -139,11 +139,11 @@
       </div>
       <br/><br/>
       <div id="localConfig">
-        <label>Players: <input type="number" id="playerCount" min="2" max="8" value="2"/></label>
+        <label>Players: <input type="number" id="localPlayerCount" min="2" max="8" value="2"/></label>
         <div id="localPlayersConfig"></div>
       </div>
       <div id="hostConfig" style="display:none;">
-        <label>Players: <input type="number" id="playerCount" min="2" max="8" value="2"/></label>
+        <label>Players: <input type="number" id="hostPlayerCount" min="2" max="8" value="2"/></label>
       </div>
       <div id="joinConfig" style="display:none;">
         <label>Game ID: <input id="joinGameId" type="text" placeholder="Enter Game ID to join"/></label>
@@ -238,7 +238,8 @@
             localConfig        = $('localConfig'),
             hostConfig         = $('hostConfig'),
             joinConfig         = $('joinConfig'),
-            playerCountIn      = $('playerCount'),
+            localPlayerCountIn = $('localPlayerCount'),
+            hostPlayerCountIn  = $('hostPlayerCount'),
             localPlayersConfig = $('localPlayersConfig'),
             startBtn           = $('startBtn'),
             setupOverlay       = $('setupOverlay'),
@@ -273,7 +274,7 @@
       const cellPx = 20;
       let pingMode = false, pingToggle = true, gameOver = false;
 
-      // Pixel-to-grid coords (exact intersections)
+      // Pixel-to-grid coords
       function px2g(rawPx) {
         return Math.max(0, Math.min(
           gridSize - 1,
@@ -461,7 +462,6 @@
         scoreListEl.innerHTML = '';
         players.forEach((p,i) => {
           const div = document.createElement('div');
-          div.textContent = `${p.name}: ${cnts[i]} <span style="color: ${p.color};">▩</span>`;
           div.innerHTML = `${p.name}: ${cnts[i]} <span style="color: ${p.color};">▩</span>`;
           scoreListEl.append(div);
         });
@@ -535,7 +535,7 @@
       updateConfig();
 
       function renderLocalPlayerConfig() {
-        const cnt = +playerCountIn.value;
+        const cnt = +localPlayerCountIn.value;
         localPlayersConfig.innerHTML = '';
         for (let i=1; i<=cnt; i++) {
           const div = document.createElement('div');
@@ -555,7 +555,7 @@
         }
       }
       renderLocalPlayerConfig();
-      playerCountIn.addEventListener('input', renderLocalPlayerConfig);
+      localPlayerCountIn.addEventListener('input', renderLocalPlayerConfig);
 
       // Lobby handlers
       myNameInput.onchange = () => {
@@ -729,14 +729,16 @@
         const sel = document.querySelector('input[name=mode]:checked');
         mode = sel?.value || 'local';
         const dim = parseInt(gridSizeSelect.value,10);
+
         if (mode!=='join') {
           gridSize = dim+1;
           canvas.width = canvas.height = cellPx*dim;
           gameContainer.style.width  = canvas.width+'px';
           gameContainer.style.height = canvas.height+'px';
         }
+
         if (mode==='local') {
-          maxPlayers = +playerCountIn.value; players=[];
+          maxPlayers = +localPlayerCountIn.value; players=[];
           document.querySelectorAll('.localNameInput').forEach(el=>{
             const idx = +el.dataset.idx;
             players.push({
@@ -751,7 +753,8 @@
           wrapper.style.display='flex'; wrapper.classList.add('flex');
           return;
         }
-        maxPlayers = +playerCountIn.value;
+
+        maxPlayers = +hostPlayerCountIn.value;
         const gid = mode==='host'
           ? (()=>{ const id = Math.random().toString(36).substr(2,9);
                    history.replaceState(null,'','?game='+id);
