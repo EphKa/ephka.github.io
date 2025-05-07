@@ -415,21 +415,68 @@
         gameContainer.style.width  = canvas.width + 'px';
         gameContainer.style.height = canvas.height+ 'px';
       }
-      if(mode==='local'){
-        maxPlayers = +playerCountIn.value;
-        players = [];
-        for(let i=0;i<maxPlayers;i++){
-          players.push({
-            id:null,
-            name:`Player ${i+1}`,
-            color:  DEFAULT_COLORS[i],   // ← assign ascending colors here
-            ready:true
-          });
-        }
-        lines=[]; setupOverlay.style.display='none';
-        initializeGame(); draw(); updateInfo();
-        wrapper.style.display='flex'; wrapper.classList.add('flex');
-      } else {
+          if(mode==='local'){
+            // 1) build players[] with default names/colors
+            maxPlayers = +playerCountIn.value;
+            players = [];
+            for(let i=0;i<maxPlayers;i++){
+              players.push({
+                id:    null,
+                name:  `Player ${i+1}`,
+                color: DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+                ready: true
+              });
+            }
+
+            // 2) hide the setup overlay, show lobbyOverlay
+            setupOverlay.style.display = 'none';
+            lobbyOverlay.style.display = 'flex';
+            lobbyGameIdEl.textContent   = 'Local Game';
+            joinedCountEl.textContent   = maxPlayers;
+            maxPlayersEl.textContent    = maxPlayers;
+            lobbyPlayersList.innerHTML  = '';
+
+            // 3) populate a row per player—allow name+color edits
+            players.forEach((p,i)=>{
+              const row = document.createElement('div');
+              row.className = 'player-row';
+              row.innerHTML = `
+                <label>Name:
+                  <input type="text" class="localName" data-idx="${i}" value="${p.name}"/>
+                </label>
+                <label>Color:
+                  <select class="localColor" data-idx="${i}">
+                    ${DEFAULT_COLORS.map((c,j)=>
+                       `<option value="${c}" ${j===i?'selected':''}>${c}</option>`
+                     ).join('')}
+                  </select>
+                </label>
+              `;
+              lobbyPlayersList.append(row);
+            });
+
+            // reuse the hostStartBtn as “Start Local Game”
+            readyBtn.style.display    = 'none';
+            hostStartBtn.style.display= 'inline-block';
+            hostStartBtn.textContent  = 'Start Local Game';
+            hostStartBtn.onclick      = () => {
+              // 4) pull in edits
+              document.querySelectorAll('.localName').forEach(el=>{
+                players[el.dataset.idx].name = el.value;
+              });
+              document.querySelectorAll('.localColor').forEach(el=>{
+                players[el.dataset.idx].color = el.value;
+              });
+
+              // 5) and finally launch the board
+              lobbyOverlay.style.display = 'none';
+              initializeGame();
+              draw();
+              updateInfo();
+              wrapper.style.display = 'flex';
+              wrapper.classList.add('flex');
+      };
+       else {
         maxPlayers = +playerCountIn.value;
         const gid = mode==='host'
           ? (()=>{ const id=Math.random().toString(36).substr(2,9);
@@ -606,7 +653,7 @@
       draw();
     });
 
-  });
+  };
   </script>
 </body>
 </html>
