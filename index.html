@@ -461,7 +461,8 @@
         scoreListEl.innerHTML = '';
         players.forEach((p,i) => {
           const div = document.createElement('div');
-          div.textContent = `${p.name}: ${cnts[i]}`;
+          div.textContent = `${p.name}: ${cnts[i]} <span style="color: ${p.color};">▩</span>`;
+          div.innerHTML = `${p.name}: ${cnts[i]} <span style="color: ${p.color};">▩</span>`;
           scoreListEl.append(div);
         });
       }
