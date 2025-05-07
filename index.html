@@ -478,10 +478,8 @@
     }
     function updatePossibleMoves(){
       const c = countPossibleMoves();
-
       const pc = $('possibleCount');
       if (pc) pc.textContent = c;
-
       if (c === 0 && !gameOver) endGame();
     }
 
@@ -519,6 +517,14 @@
       if(myIndex<0 || !players[myIndex]) return;
       players[myIndex].color = myColorSelect.value;
       gameRef.update({ players });
+    };
+
+    // Host “Start Game” button
+    hostStartBtn.onclick = async () => {
+      await gameRef.update({
+        started: true,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      });
     };
 
     // Mouse handlers
@@ -619,15 +625,14 @@
         });
         gameRef=db.collection('games').doc(newId);
         gameOver=false;
-        // FIXED: unwrap the DocumentSnapshot before passing to handleSnapshot
         gameRef.onSnapshot(doc => {
           const data = doc.data() || {};
           handleSnapshot(data);
-        }, err => console.warn('Snapshot error:', err));
+        }, err=>console.warn('Snapshot error:', err));
       }
     };
 
-    // Start
+    // Start / Join
     startBtn.onclick=async()=>{
       const sel=document.querySelector('input[name=mode]:checked');
       mode=sel?.value||'local';
@@ -653,8 +658,11 @@
       }
       maxPlayers=+playerCountIn.value;
       const gid=mode==='host'
-        ?(()=>{const id=Math.random().toString(36).substr(2,9);
-               history.replaceState(null,'','?game='+id);return id;})()
+        ?(()=>{
+            const id=Math.random().toString(36).substr(2,9);
+            history.replaceState(null,'','?game='+id);
+            return id;
+          })()
         :$('joinGameId').value.trim();
       if(mode==='join'&&!gid) return alert('Enter Game ID');
       setupOverlay.style.display='none';
@@ -683,14 +691,13 @@
         });
         await gameRef.update({players});
       }
-      // FIXED: unwrap the DocumentSnapshot before passing to handleSnapshot
-      gameRef.onSnapshot(doc => {
+      gameRef.onSnapshot(doc=>{
         const data = doc.data() || {};
         handleSnapshot(data);
-      }, err => console.warn('Snapshot error:', err));
+      }, err=>console.warn('Snapshot error:', err));
     };
 
-    // Snapshot handler (now receiving plain data)
+    // Snapshot handler
     function handleSnapshot(data){
       players   = data.players   || [];
       lines     = data.lines     || [];
