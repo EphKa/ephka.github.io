@@ -46,6 +46,15 @@
       margin-right: 16px;
       position: relative;
     }
+
+    /* Canvas hit border */
+    canvas {
+      background: #fff;
+      border: 20px solid transparent;
+      box-sizing: content-box;
+    }
+
+    /* Sidebar */
     #sidebar > div {
       border-top: 1px solid #ccc;
       padding-top: 12px;
@@ -55,13 +64,6 @@
       border-top: none;
       padding-top: 0;
       margin-top: 0;
-    }
-
-    /* Canvas hit border */
-    canvas {
-      background: #fff;
-      border: 20px solid transparent;
-      box-sizing: content-box;
     }
 
     #chatLog {
@@ -83,13 +85,11 @@
     }
 
     #localPlayersConfig .player-row { margin-bottom: 4px; }
-    #scoreboard ul { list-style: none; padding-left: 0; }
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore-compat.js"></script>
 </head>
-
 <body>
   <!-- SETUP OVERLAY -->
   <div id="setupOverlay">
@@ -169,17 +169,6 @@
           <input id="chatInput" type="text" placeholder="Type message..."/>
           <button id="chatSendBtn">Send</button>
         </div>
-        <div id="scoreboard">
-          <h4>Scoreboard</h4>
-          <ul id="scoreList"></ul>
-        </div>
-        <div id="possibleMovesDisplay">
-          Possible moves: <span id="possibleCount">0</span>
-        </div>
-        <div id="lastResult">
-          <h4>Last Game Result</h4>
-          <div id="lastResultText">—</div>
-        </div>
       </div>
     </div>
     <div id="info">Waiting…</div>
@@ -210,6 +199,7 @@
     const $ = id => document.getElementById(id);
     const clientId = Math.random().toString(36).substr(2,9);
 
+    // UI refs
     const modeRadios        = document.getElementsByName('mode'),
           gridSizeConfig    = $('gridSizeConfig'),
           gridSizeSelect    = $('gridSizeSelect'),
@@ -239,13 +229,11 @@
           debugEl           = $('debug'),
           restartBtn        = $('restartBtn'),
           pingBtn           = $('pingBtn'),
-          scoreListUl       = $('scoreList'),
-          possibleCountEl   = $('possibleCount'),
-          lastResultTextEl  = $('lastResultText'),
           canvas            = $('gameCanvas'),
           ctx               = canvas.getContext('2d'),
           gameContainer     = $('game-container');
 
+    // Constants & state
     const DEFAULT_COLORS = ['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'];
     let mode, gridSize, maxPlayers, myIndex = -1, gameRef, started=false;
     let players=[], lines=[], chatArr=[], turnIndex=0;
@@ -296,7 +284,7 @@
     }
     function g2px(g){ return g*cellPx; }
 
-    // Init board
+    // Initialize board
     function makeEmptyCells(){
       return Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
     }
@@ -308,7 +296,7 @@
       cells     = makeEmptyCells();
     }
 
-    // Territory
+    // Territory logic
     function canPass(x,y,nx,ny){
       if(x===nx) return !horiz[Math.min(y,ny)+1][x];
       else       return !vert[y][Math.min(x,nx)+1];
@@ -466,7 +454,7 @@
       }
     }
 
-    // Info & scoreboard
+    // Info
     function updateInfo(){
       const cnts = players.map(()=>0);
       (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
@@ -474,16 +462,8 @@
         `Turn: ${players[turnIndex]?.name||''} | ` +
         players.map((p,i)=>`${p.name}: ${cnts[i]}`).join(', ');
     }
-    function updateScoreboard(){
-      const cnts = players.map(()=>0);
-      (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
-      scoreListUl.innerHTML = '';
-      players.forEach((p,i)=>{
-        const li = document.createElement('li');
-        li.textContent = `${p.name}: ${cnts[i]}`;
-        scoreListUl.append(li);
-      });
-    }
+
+    // Possible moves
     function countPossibleMoves(){
       let c=0;
       for(let y=0;y<gridSize;y++){
@@ -504,10 +484,11 @@
     }
     function updatePossibleMoves(){
       const c = countPossibleMoves();
-      possibleCountEl.textContent = c;
+      $('possibleCount')?.textContent = c;
       if(c===0 && !gameOver) endGame();
     }
 
+    // End game
     async function endGame(){
       gameOver = true;
       const cnts = players.map(()=>0);
@@ -516,14 +497,7 @@
             winnerIdx = cnts.indexOf(maxTerr),
             winnerName = players[winnerIdx]?.name;
       alert(`Game over! ${winnerName} wins with ${maxTerr} territories.`);
-      if(mode!=='local'){
-        await db.collection('gameResults').add({
-          players: players.map(p=>({id:p.id,name:p.name})),
-          scores: cnts,
-          winnerIndex: winnerIdx,
-          timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        });
-      }
+      // no gameResults write
     }
 
     // Ping blink
@@ -536,7 +510,7 @@
       draw();
     }, 500);
 
-    // Safe handlers for name & ready
+    // Safe input handlers
     myNameInput.onchange = () => {
       if(myIndex < 0 || !players[myIndex]) return;
       players[myIndex].name = myNameInput.value;
@@ -576,33 +550,22 @@
       const r = canvas.getBoundingClientRect(),
             gx = px2g(e.clientX - r.left),
             gy = px2g(e.clientY - r.top);
-
       if(pingMode){
         pings = [{ x:gx, y:gy, w:1, h:1, blinkCount:4 }];
-        pingMode = false;
-        draw();
-        return;
+        pingMode = false; draw(); return;
       }
-
       if((mode!=='local' && !started) || gameOver){
         debugEl.textContent = gameOver ? 'Game over.' : 'Not started yet.';
         return;
       }
       if(mode!=='local' && turnIndex!==myIndex){
-        debugEl.textContent = 'Not your turn.';
-        clickStart = null;
-        return;
+        debugEl.textContent = 'Not your turn.'; clickStart = null; return;
       }
-
       if(!clickStart){
-        clickStart = { x:gx, y:gy };
-        return;
+        clickStart = { x:gx, y:gy }; return;
       }
-      const sx = clickStart.x, sy = clickStart.y,
-            ex = gx, ey = gy;
-      clickStart = null;
-      debugEl.textContent = '';
-
+      const sx = clickStart.x, sy = clickStart.y, ex = gx, ey = gy;
+      clickStart = null; debugEl.textContent = '';
       if(!isStraight3(sx,sy,ex,ey))             debugEl.textContent='Line must be straight & length 3.';
       else if(!isConnected(sx,sy,ex,ey))        debugEl.textContent='Must touch existing point.';
       else if(!noNodeReuse(sx,sy,ex,ey))        debugEl.textContent='Cannot cross existing line interior.';
@@ -622,7 +585,7 @@
           lines.push({ sx, sy, ex, ey, playerIndex: turnIndex });
           occupy(sx,sy,ex,ey,turnIndex);
           turnIndex = (turnIndex+1) % players.length;
-          draw(); updateInfo(); updateScoreboard(); updatePossibleMoves();
+          draw(); updateInfo(); updatePossibleMoves();
         }
       }
     });
@@ -649,8 +612,7 @@
     restartBtn.onclick = async () => {
       if(mode==='local'){
         lines=[]; turnIndex=0; initializeGame(); draw();
-        updateInfo(); updateScoreboard(); updatePossibleMoves();
-        gameOver=false;
+        updateInfo(); updatePossibleMoves(); gameOver=false;
       } else {
         const newId = Math.random().toString(36).substr(2,9);
         history.replaceState(null,'','?game='+newId);
@@ -662,7 +624,7 @@
           timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
         gameRef = db.collection('games').doc(newId);
-        gameOver=false;
+        gameOver = false;
         gameRef.onSnapshot(handleSnapshot, err=>console.warn('Snapshot error:', err));
       }
     };
@@ -672,14 +634,12 @@
       const sel = document.querySelector('input[name=mode]:checked');
       mode = sel?.value || 'local';
       const dim = parseInt(gridSizeSelect.value,10);
-
       if(mode!=='join'){
         gridSize = dim+1;
         canvas.width  = canvas.height = cellPx*dim;
         gameContainer.style.width  = canvas.width+'px';
         gameContainer.style.height = canvas.height+'px';
       }
-
       if(mode==='local'){
         maxPlayers = +playerCountIn.value;
         players = [];
@@ -689,12 +649,11 @@
           const color = document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value;
           players.push({ id:null, name, color, ready:true });
         });
-        setupOverlay.style.display='none';
-        initializeGame(); draw(); updateInfo(); updateScoreboard(); updatePossibleMoves();
+        setupOverlay.style.display = 'none';
+        initializeGame(); draw(); updateInfo(); updatePossibleMoves();
         wrapper.style.display='flex'; wrapper.classList.add('flex');
         return;
       }
-
       maxPlayers = +playerCountIn.value;
       const gid = mode==='host'
         ? (() => {
@@ -726,7 +685,7 @@
         if(data.players.length >= data.maxPlayers) return alert('Game is full');
         players = data.players;
         players.push({
-          id:clientId,
+          id: clientId,
           name:`Player ${players.length+1}`,
           color: DEFAULT_COLORS[players.length % DEFAULT_COLORS.length],
           ready:false
@@ -779,13 +738,11 @@
         chatSection.style.display='block';
         initializeGame();
         lines.forEach(ln=>occupy(ln.sx,ln.sy,ln.ex,ln.ey,ln.playerIndex));
-        draw(); renderChat(); updateInfo(); updateScoreboard(); updatePossibleMoves();
+        draw(); renderChat(); updateInfo(); updatePossibleMoves();
       }
     }
 
-    // Lobby controls already bound with guards...
-
-    // Chat render
+    // Render chat
     function renderChat(){
       chatLog.innerHTML = '';
       (chatArr||[]).sort((a,b)=>{
@@ -801,22 +758,6 @@
       });
       chatLog.scrollTop = chatLog.scrollHeight;
     }
-
-    // Last result listener with error handler
-    db.collection('gameResults')
-      .orderBy('timestamp','desc')
-      .limit(1)
-      .onSnapshot(
-        snap => {
-          if(!snap.empty){
-            const d = snap.docs[0].data(),
-                  w = d.players[d.winnerIndex].name,
-                  s = d.scores[d.winnerIndex];
-            lastResultTextEl.textContent = `${w} won with ${s} territories.`;
-          }
-        },
-        err => console.warn('gameResults snapshot error:', err)
-      );
 
   }); // end DOMContentLoaded
   </script>
