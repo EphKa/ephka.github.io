@@ -143,6 +143,16 @@
   </div>
 
   <script>
+    const DEFAULT_COLORS = [
+      '#006400', // darkgreen
+      '#ff0000', // red
+      '#ffd700', // gold
+      '#c71585', // mediumvioletred
+      '#00ff00', // lime
+      '#00ffff', // aqua
+      '#0000ff', // blue
+      '#1e90ff'  // dodgerblue
+    ];
   document.addEventListener('DOMContentLoaded', () => {
     const $ = id => document.getElementById(id);
     const clientId = Math.random().toString(36).substr(2,9);
@@ -404,7 +414,7 @@
           players.push({
             id:null,
             name:`Player ${i+1}`,
-            color:['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'][i],
+            color:  DEFAULT_COLORS[i],   // ← assign ascending colors here
             ready:true
           });
         }
