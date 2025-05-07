@@ -5,62 +5,94 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>Grid Territory Multiplayer</title>
   <style>
-    body,html { display: flex;  justify-content: center; margin:0; padding:0; height:100%; font-family:sans-serif; }
+    /* Center entire UI */
+    body, html {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100%;
+      margin: 0;
+      font-family: sans-serif;
+    }
+
     /* Overlays */
     #setupOverlay, #lobbyOverlay {
-      position:absolute; top:0; left:0; width:100%; height:100%;
-      background:rgba(255,255,255,0.95);
-      display:flex; align-items:center; justify-content:center; z-index:10;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(255,255,255,0.95);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 10;
     }
     .dialog {
-      background:#fff; padding:20px; border:1px solid #ccc; border-radius:4px;
-      max-width:400px; width:100%;
+      background: #fff;
+      padding: 20px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      max-width: 400px; width: 100%;
     }
-    .player-row { display:flex; align-items:center; margin-bottom:8px; }
-    .player-row label { flex:1; }
-    /* Main game */
-    #wrapper { display:none; height:100%; flex-direction:column; }
-    #wrapper.flex { display:flex; }
-    #main { display:flex; flex:1; }
-    #game-container { position:relative; }
-    canvas {
-      margin-right: 16px;
-      padding-right: 16px;
-      border-right: 1px solid #ccc;
+    .player-row { display: flex; align-items: center; margin-bottom: 8px; }
+    .player-row label { flex: 1; }
 
-      position:absolute; top:0; left:0; background:#fff;
-      /* invisible 1-cell hit border */
-      border:20px solid transparent;
-      box-sizing: content-box;
+    /* Main layout */
+    #wrapper { display: none; flex-direction: column; }
+    #wrapper.flex { display: flex; }
+    #main { display: flex; }
+
+    /* Separator between columns */
+    #game-container {
+      border-right: 1px solid #ccc;
+      padding-right: 16px;
+      margin-right: 16px;
+      position: relative;
     }
-    #sidebar { margin-left:20px; width:250px; 
+    #sidebar > div {
       border-top: 1px solid #ccc;
       padding-top: 12px;
-      margin-top: 12px; }
+      margin-top: 12px;
+    }
     #sidebar > div:first-child {
       border-top: none;
-      margin-top: 0;
       padding-top: 0;
+      margin-top: 0;
     }
+
+    /* Canvas hit border */
+    canvas {
+      background: #fff;
+      border: 20px solid transparent;
+      box-sizing: content-box;
+    }
+
     #chatLog {
-      overflow-y:auto; height:200px; border:1px solid #ccc; padding:5px;
-      resize: vertical; min-height:100px; max-height:400px;
+      overflow-y: auto;
+      height: 200px;
+      border: 1px solid #ccc;
+      padding: 5px;
+      resize: vertical;
+      min-height: 100px;
+      max-height: 400px;
     }
-    #info { margin-top:8px; font-weight:600; }
-    #hoverInfo { margin-top:4px; font-size:.9em; color:#333; }
-    #debug { margin-top:8px; font-size:.8em; color:#a00; white-space:pre-wrap; }
-    button { margin-top:8px; padding:6px 12px; font-size:.9rem; cursor:pointer; }
-    select,input[type="text"],input[type="number"] { width:100%; padding:4px; box-sizing:border-box; }
-    #localPlayersConfig .player-row { margin-bottom:4px; }
-    #scoreboard, #lastResult, #possibleMovesDisplay { margin-top:16px; }
-    #scoreboard ul { list-style:none; padding-left:0; }
+    #info { margin-top: 8px; font-weight: 600; }
+    #hoverInfo { margin-top: 4px; font-size: .9em; color: #333; }
+    #debug { margin-top: 8px; font-size: .8em; color: #a00; white-space: pre-wrap; }
+
+    button { margin-top: 8px; padding: 6px 12px; font-size: .9rem; cursor: pointer; }
+    select, input[type="text"], input[type="number"] {
+      width: 100%; padding: 4px; box-sizing: border-box;
+    }
+
+    #localPlayersConfig .player-row { margin-bottom: 4px; }
+    #scoreboard ul { list-style: none; padding-left: 0; }
   </style>
+
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore-compat.js"></script>
 </head>
+
 <body>
-  <!-- SETUP OVERLAY -->
+  <!-- SETUP -->
   <div id="setupOverlay">
     <div class="dialog">
       <h3>Setup Game</h3>
@@ -92,7 +124,7 @@
     </div>
   </div>
 
-  <!-- LOBBY OVERLAY -->
+  <!-- LOBBY -->
   <div id="lobbyOverlay" style="display:none;">
     <div class="dialog">
       <h3>Game Lobby</h3>
@@ -123,7 +155,7 @@
     </div>
   </div>
 
-  <!-- MAIN UI -->
+  <!-- MAIN GAME -->
   <div id="wrapper">
     <h2>Grid Territory</h2>
     <div id="main">
@@ -158,7 +190,7 @@
   </div>
 
   <script>
-  // -- FIREBASE INIT --
+  // Initialize Firebase
   const firebaseConfig = {
     apiKey: "AIzaSyAlZwiFJYt73ZamlICtOSRUMOmEujPahTY",
     authDomain: "territory-58483.firebaseapp.com",
@@ -175,7 +207,7 @@
   const db = firebase.firestore();
 
   document.addEventListener('DOMContentLoaded', () => {
-    // -- SHORTCUTS & GLOBAL STATE --
+    // Shortcuts
     const $ = id => document.getElementById(id);
     const clientId = Math.random().toString(36).substr(2,9);
 
@@ -224,7 +256,7 @@
     const cellPx = 20, borderPx = 20;
     let pings = [], pingMode=false, pingToggle=true, gameOver=false;
 
-    // -- CONFIG PANEL LOGIC --
+    // Update config panel
     function updateConfig(){
       const sel = document.querySelector('input[name=mode]:checked');
       mode = sel ? sel.value : 'local';
@@ -236,6 +268,7 @@
     modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
     updateConfig();
 
+    // Local players UI
     function renderLocalPlayerConfig(){
       const cnt = +playerCountIn.value;
       localPlayersConfig.innerHTML = '';
@@ -243,30 +276,30 @@
         const div = document.createElement('div');
         div.className = 'player-row';
         div.innerHTML = `
-         <label>Name:
-           <input type="text" class="localNameInput" data-idx="${i-1}" value="Player ${i}"/>
-         </label>
-         <label>Color:
-           <select class="localColorSelect" data-idx="${i-1}">
-             ${DEFAULT_COLORS.map((c,j)=>
-               `<option value="${c}" ${j===i-1?'selected':''}>${c}</option>`
-             ).join('')}
-           </select>
-         </label>`;
+          <label>Name:
+            <input type="text" class="localNameInput" data-idx="${i-1}" value="Player ${i}"/>
+          </label>
+          <label>Color:
+            <select class="localColorSelect" data-idx="${i-1}">
+              ${DEFAULT_COLORS.map((c,j)=>
+                `<option value="${c}" ${j===i-1?'selected':''}>${c}</option>`
+              ).join('')}
+            </select>
+          </label>`;
         localPlayersConfig.append(div);
       }
     }
     renderLocalPlayerConfig();
     playerCountIn.addEventListener('input',renderLocalPlayerConfig);
 
-    // -- GRID UTILS --
+    // Grid helpers
     function px2g(rawPx){
       const contentPx = rawPx - borderPx;
       return Math.min(Math.max(Math.round(contentPx/cellPx),0),gridSize-1);
     }
     function g2px(g){ return g*cellPx; }
 
-    // -- GAME STATE INIT --
+    // Initialize board state
     function makeEmptyCells(){
       return Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
     }
@@ -278,7 +311,7 @@
       cells     = makeEmptyCells();
     }
 
-    // -- TERRITORY LOGIC --
+    // Territory logic
     function canPass(x,y,nx,ny){
       if(x===nx) return !horiz[Math.min(y,ny)+1][x];
       else       return !vert[y][Math.min(x,nx)+1];
@@ -292,7 +325,7 @@
           let queue=[{x,y}], region=[], escapes=false;
           vis[y][x]=true;
           while(queue.length){
-            const {x:cx,y:cy} = queue.shift();
+            const {x:cx,y:cy}=queue.shift();
             region.push({x:cx,y:cy});
             if(cx===0      && !vert[cy][0])    escapes=true;
             if(cx===cols-1 && !vert[cy][cols]) escapes=true;
@@ -323,7 +356,7 @@
       }
       endpoints[sy][sx]=true;
       endpoints[ey][ex]=true;
-      const midsNew = [
+      const midsNew=[
         {x:sx+(ex-sx)/3,   y:sy+(ey-sy)/3},
         {x:sx+2*(ex-sx)/3, y:sy+2*(ey-sy)/3}
       ];
@@ -331,7 +364,7 @@
       fillTerritories(p);
     }
 
-    // -- RULES --
+    // Rule checks
     function isStraight3(sx,sy,ex,ey){
       const dx=Math.abs(ex-sx), dy=Math.abs(ey-sy);
       return (dx===3&&dy===0)||(dx===0&&dy===3);
@@ -344,7 +377,7 @@
         {x:sx+2*(ex-sx)/3, y:sy+2*(ey-sy)/3}
       ];
       return pts.some(pt=>
-        endpoints[pt.y][pt.x]||mids[pt.y][pt.x]
+        endpoints[pt.y]?.[pt.x] || mids[pt.y]?.[pt.x]
       );
     }
     function noNodeReuse(sx,sy,ex,ey){
@@ -352,7 +385,7 @@
         {x:sx+(ex-sx)/3,   y:sy+(ey-sy)/3},
         {x:sx+2*(ex-sx)/3, y:sy+2*(ey-sy)/3}
       ];
-      return midsNew.every(m=>!mids[m.y][m.x]);
+      return midsNew.every(m=>!mids[m.y]?.[m.x]);
     }
     function noTerritory(sx,sy,ex,ey){
       if(sx===ex){
@@ -395,17 +428,15 @@
       return true;
     }
 
-    // -- DRAW --
+    // Draw everything
     function draw(){
       ctx.clearRect(0,0,canvas.width,canvas.height);
-      // grid
       ctx.strokeStyle='#ddd'; ctx.lineWidth=1;
       for(let i=0;i<gridSize;i++){
         const p=g2px(i);
         ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,canvas.height); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(canvas.width,p);   ctx.stroke();
       }
-      // territories
       (cells||[]).forEach((row,y)=>
         row.forEach((c,x)=>{
           if(c>0){
@@ -416,45 +447,43 @@
           }
         })
       );
-      // lines
       (lines||[]).forEach((ln,i)=>{
         ctx.beginPath();
         ctx.setLineDash([]);
         ctx.lineCap='round';
-        ctx.lineWidth=(i===lines.length-1?6:4);
-        ctx.strokeStyle=players[ln.playerIndex].color;
+        ctx.lineWidth = (i===lines.length-1?6:4);
+        ctx.strokeStyle = players[ln.playerIndex].color;
         ctx.moveTo(g2px(ln.sx),g2px(ln.sy));
         ctx.lineTo(g2px(ln.ex),g2px(ln.ey));
         ctx.stroke();
       });
-      // ping blink
       if(pings.length && pingToggle){
         ctx.font=`${cellPx}px sans-serif`;
         pings.forEach(r=>{
           for(let dx=0;dx<r.w;dx++){
             for(let dy=0;dy<r.h;dy++){
-              ctx.fillText('⚠️',g2px(r.x+dx),g2px(r.y+dy+1));
+              ctx.fillText('⚠️', g2px(r.x+dx), g2px(r.y+dy+1));
             }
           }
         });
       }
     }
 
-    // -- INFO & SCOREBOARD --
+    // Info & scoreboard
     function updateInfo(){
-      const cnts=players.map(()=>0);
+      const cnts = players.map(()=>0);
       (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
-      infoEl.textContent=
-        `Turn: ${players[turnIndex].name} | ` +
+      infoEl.textContent =
+        `Turn: ${players[turnIndex]?.name||''} | ` +
         players.map((p,i)=>`${p.name}: ${cnts[i]}`).join(', ');
     }
     function updateScoreboard(){
-      const cnts=players.map(()=>0);
+      const cnts = players.map(()=>0);
       (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
-      scoreListUl.innerHTML='';
+      scoreListUl.innerHTML = '';
       players.forEach((p,i)=>{
-        const li=document.createElement('li');
-        li.textContent=`${p.name}: ${cnts[i]}`;
+        const li = document.createElement('li');
+        li.textContent = `${p.name}: ${cnts[i]}`;
         scoreListUl.append(li);
       });
     }
@@ -469,25 +498,26 @@
               && isConnected(x,y,ex,ey)
               && noNodeReuse(x,y,ex,ey)
               && noTerritory(x,y,ex,ey)
-              && noMutualEndpointMidViolation(x,y,ex,ey)) c++;
+              && noMutualEndpointMidViolation(x,y,ex,ey)
+            ) c++;
           });
         }
       }
       return c;
     }
     function updatePossibleMoves(){
-      const c=countPossibleMoves();
-      possibleCountEl.textContent=c;
+      const c = countPossibleMoves();
+      possibleCountEl.textContent = c;
       if(c===0 && !gameOver) endGame();
     }
 
     async function endGame(){
-      gameOver=true;
-      const cnts=players.map(()=>0);
+      gameOver = true;
+      const cnts = players.map(()=>0);
       (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
-      const maxTerr=Math.max(...cnts),
-            winnerIdx=cnts.indexOf(maxTerr),
-            winnerName=players[winnerIdx].name;
+      const maxTerr = Math.max(...cnts),
+            winnerIdx = cnts.indexOf(maxTerr),
+            winnerName = players[winnerIdx]?.name;
       alert(`Game over! ${winnerName} wins with ${maxTerr} territories.`);
       if(mode!=='local'){
         await db.collection('gameResults').add({
@@ -499,62 +529,68 @@
       }
     }
 
-    // -- PING BLINK TIMER --
+    // Ping blink timer
     setInterval(()=>{
       pingToggle = !pingToggle;
       if(pings.length){
         pings.forEach(p=>p.blinkCount--);
-        if(pings[0].blinkCount<=0) pings=[];
+        if(pings[0].blinkCount <= 0) pings = [];
       }
       draw();
     }, 500);
 
-    // -- MOUSE HANDLERS --
-    let clickStart=null, hoverEnd=null;
+    // Mouse handlers
+    let clickStart = null;
     canvas.addEventListener('mousemove', e=>{
-      const r=canvas.getBoundingClientRect(),
-            gx=px2g(e.clientX-r.left),
-            gy=px2g(e.clientY-r.top);
-      hoverEnd={x:gx,y:gy};
+      const r = canvas.getBoundingClientRect(),
+            gx = px2g(e.clientX - r.left),
+            gy = px2g(e.clientY - r.top);
       if(clickStart){
         draw();
-        ctx.beginPath(); ctx.setLineDash([5,5]); ctx.lineWidth=2; ctx.strokeStyle='gray';
+        ctx.beginPath(); ctx.setLineDash([5,5]);
+        ctx.lineWidth = 2; ctx.strokeStyle = 'gray';
         ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));
-        ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y)); ctx.stroke();
+        ctx.lineTo(g2px(gx),g2px(gy)); ctx.stroke();
         ctx.setLineDash([]);
       } else {
-        draw();
-        hoverInfoEl.textContent=`Hovered: (${gx},${gy})`;
+        hoverInfoEl.textContent = `Hovered: (${gx},${gy})`;
       }
     });
-    canvas.addEventListener('mouseleave', ()=> hoverInfoEl.textContent='');
+    canvas.addEventListener('mouseleave', () => hoverInfoEl.textContent = '');
 
     canvas.addEventListener('click', async e=>{
-      const r=canvas.getBoundingClientRect(),
-            gx=px2g(e.clientX-r.left),
-            gy=px2g(e.clientY-r.top);
+      const r = canvas.getBoundingClientRect(),
+            gx = px2g(e.clientX - r.left),
+            gy = px2g(e.clientY - r.top);
 
       // Ping mode
       if(pingMode){
         pings = [{ x:gx, y:gy, w:1, h:1, blinkCount:4 }];
-        pingMode=false; draw(); return;
+        pingMode = false;
+        draw();
+        return;
       }
 
-      // Not started or game over
+      // Not started or over
       if((mode!=='local' && !started) || gameOver){
         debugEl.textContent = gameOver ? 'Game over.' : 'Not started yet.';
         return;
       }
       if(mode!=='local' && turnIndex!==myIndex){
-        debugEl.textContent='Not your turn.'; clickStart=null; return;
+        debugEl.textContent = 'Not your turn.';
+        clickStart = null;
+        return;
       }
 
       // Place line
       if(!clickStart){
-        clickStart={x:gx,y:gy}; return;
+        clickStart = { x:gx, y:gy };
+        return;
       }
-      const sx=clickStart.x, sy=clickStart.y, ex=gx, ey=gy;
-      clickStart=null; debugEl.textContent='';
+      const sx = clickStart.x, sy = clickStart.y,
+            ex = gx, ey = gy;
+      clickStart = null;
+      debugEl.textContent = '';
 
       if(!isStraight3(sx,sy,ex,ey))             debugEl.textContent='Line must be straight & length 3.';
       else if(!isConnected(sx,sy,ex,ey))        debugEl.textContent='Must touch existing point.';
@@ -564,97 +600,108 @@
                                                 debugEl.textContent='Illegal mutual endpoint↔midpoint cross.';
       else {
         if(mode!=='local'){
-          const newLines=[...(lines||[]),{sx,sy,ex,ey,playerIndex:turnIndex}];
-          const next=(turnIndex+1)%players.length;
+          const newLines = [...(lines||[]), { sx, sy, ex, ey, playerIndex:turnIndex }];
+          const next = (turnIndex+1)%players.length;
           gameRef.update({
-            lines:newLines,
+            lines: newLines,
             turnIndex: next,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
           });
         } else {
-          lines.push({sx,sy,ex,ey,playerIndex:turnIndex});
+          lines.push({ sx, sy, ex, ey, playerIndex:turnIndex });
           occupy(sx,sy,ex,ey,turnIndex);
-          turnIndex=(turnIndex+1)%players.length;
+          turnIndex = (turnIndex+1)%players.length;
           draw(); updateInfo(); updateScoreboard(); updatePossibleMoves();
         }
       }
     });
 
-    // -- CHAT SEND --
-    chatSendBtn.onclick=()=>{
-      const text=chatInput.value.trim(); if(!text) return;
-      const now=firebase.firestore.Timestamp.now();
-      const msg={ senderId:clientId, senderName:players[myIndex].name, text, timestamp:now };
+    // Chat send
+    chatSendBtn.onclick = () => {
+      const text = chatInput.value.trim();
+      if(!text) return;
+      const now = firebase.firestore.Timestamp.now();
+      const msg = { senderId:clientId, senderName:players[myIndex].name, text, timestamp:now };
       gameRef.update({
         chat: firebase.firestore.FieldValue.arrayUnion(msg),
         lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
       });
-      chatInput.value='';
+      chatInput.value = '';
     };
 
-    // -- PING BUTTON --
-    pingBtn.onclick=()=>{
-      pingMode=true;
-      debugEl.textContent='Click a cell to ping';
+    // Ping button
+    pingBtn.onclick = () => {
+      pingMode = true;
+      debugEl.textContent = 'Click a cell to ping';
     };
 
-    // -- RESTART BUTTON --
-    restartBtn.onclick=async()=>{
+    // Restart button
+    restartBtn.onclick = async () => {
       if(mode==='local'){
-        lines=[]; turnIndex=0; initializeGame(); draw();
-        updateInfo(); updateScoreboard(); updatePossibleMoves(); gameOver=false;
+        lines = []; turnIndex=0; initializeGame(); draw();
+        updateInfo(); updateScoreboard(); updatePossibleMoves();
+        gameOver = false;
       } else {
-        const newId=Math.random().toString(36).substr(2,9);
+        const newId = Math.random().toString(36).substr(2,9);
         history.replaceState(null,'','?game='+newId);
-        const dim=parseInt(gridSizeSelect.value,10);
+        const dim = parseInt(gridSizeSelect.value,10);
         await db.collection('games').doc(newId).set({
           maxPlayers, players, turnIndex:0,
           lines:[], chat:[], started:true,
           gridSizeDim: dim,
           timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
-        gameRef=db.collection('games').doc(newId);
-        gameOver=false;
-        gameRef.onSnapshot(handleSnapshot, err=>console.error('Snapshot error:', err));
+        gameRef = db.collection('games').doc(newId);
+        gameOver = false;
+        gameRef.onSnapshot(handleSnapshot, err => console.warn('Game snapshot error:', err));
       }
     };
 
-    // -- START BUTTON --
-    startBtn.onclick=async()=>{
+    // Start button
+    startBtn.onclick = async () => {
       const sel = document.querySelector('input[name=mode]:checked');
-      mode = sel?sel.value:'local';
-      const dim=parseInt(gridSizeSelect.value,10);
+      mode = sel?.value || 'local';
+      const dim = parseInt(gridSizeSelect.value,10);
+
       if(mode!=='join'){
-        gridSize=dim+1;
-        canvas.width=canvas.height=cellPx*dim;
-        gameContainer.style.width=canvas.width+'px';
-        gameContainer.style.height=canvas.height+'px';
+        gridSize = dim+1;
+        canvas.width = canvas.height = cellPx*dim;
+        gameContainer.style.width = canvas.width+'px';
+        gameContainer.style.height= canvas.height+'px';
       }
+
       if(mode==='local'){
-        maxPlayers=+playerCountIn.value; players=[];
+        maxPlayers = +playerCountIn.value;
+        players = [];
         document.querySelectorAll('.localNameInput').forEach(el=>{
-          const idx=+el.dataset.idx;
-          const name=el.value||`Player ${idx+1}`;
-          const color=document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value;
-          players.push({id:null,name,color,ready:true});
+          const idx = +el.dataset.idx;
+          const name = el.value||`Player ${idx+1}`;
+          const color = document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value;
+          players.push({ id:null, name, color, ready:true });
         });
-        setupOverlay.style.display='none';
+        setupOverlay.style.display = 'none';
         initializeGame(); draw(); updateInfo(); updateScoreboard(); updatePossibleMoves();
-        wrapper.style.display='flex'; wrapper.classList.add('flex');
+        wrapper.style.display = 'flex'; wrapper.classList.add('flex');
         return;
       }
-      maxPlayers=+playerCountIn.value;
-      const gid=mode==='host'
-        ?(() => { const id=Math.random().toString(36).substr(2,9);
-                  history.replaceState(null,'','?game='+id); return id; })()
-        :$('joinGameId').value.trim();
-      if(mode==='join'&&!gid) return alert('Enter Game ID');
-      setupOverlay.style.display='none'; lobbyOverlay.style.display='flex';
-      lobbyGameIdEl.textContent=gid; maxPlayersEl.textContent=maxPlayers;
-      gameRef=db.collection('games').doc(gid);
+
+      maxPlayers = +playerCountIn.value;
+      const gid = mode==='host'
+        ? (()=>{ const id=Math.random().toString(36).substr(2,9);
+                 history.replaceState(null,'','?game='+id);
+                 return id; })()
+        : $('joinGameId').value.trim();
+
+      if(mode==='join' && !gid) return alert('Enter Game ID');
+
+      setupOverlay.style.display='none';
+      lobbyOverlay.style.display='flex';
+      lobbyGameIdEl.textContent = gid;
+      maxPlayersEl.textContent = maxPlayers;
+      gameRef = db.collection('games').doc(gid);
 
       if(mode==='host'){
-        players=[{id:clientId,name:'Player 1',color:DEFAULT_COLORS[0],ready:false}];
+        players = [{ id:clientId, name:'Player 1', color:DEFAULT_COLORS[0], ready:false }];
         await gameRef.set({
           maxPlayers, players, turnIndex:0,
           lines:[], chat:[], started:false,
@@ -664,55 +711,55 @@
       } else {
         const snap = await gameRef.get();
         if(!snap.exists) return alert('Game not found');
-        const data=snap.data();
-        if(data.players.length>=data.maxPlayers) return alert('Game is full');
-        players=data.players;
+        const data = snap.data();
+        if(data.players.length >= data.maxPlayers) return alert('Game is full');
+        players = data.players;
         players.push({
           id:clientId,
           name:`Player ${players.length+1}`,
-          color: DEFAULT_COLORS[players.length%DEFAULT_COLORS.length],
+          color: DEFAULT_COLORS[players.length % DEFAULT_COLORS.length],
           ready:false
         });
-        await gameRef.update({players});
+        await gameRef.update({ players });
       }
-      gameRef.onSnapshot(handleSnapshot, err=>console.error('Snapshot error:', err));
+      gameRef.onSnapshot(handleSnapshot, err => console.warn('Game snapshot error:', err));
     };
 
-    // -- SNAPSHOT HANDLER --
+    // Snapshot handler
     function handleSnapshot(data){
-      players   =data.players;
-      lines     =data.lines;
-      chatArr   =data.chat;
-      turnIndex =data.turnIndex;
-      maxPlayers=data.maxPlayers;
-      started   =data.started;
+      players   = data.players   || [];
+      lines     = data.lines     || [];
+      chatArr   = data.chat      || [];
+      turnIndex = data.turnIndex || 0;
+      maxPlayers= data.maxPlayers|| maxPlayers;
+      started   = data.started   || false;
 
       if(!started){
-        joinedCountEl.textContent=players.length;
-        lobbyList.innerHTML='';
+        joinedCountEl.textContent = players.length;
+        lobbyList.innerHTML = '';
         players.forEach(p=>{
-          const div=document.createElement('div'),
-                sw=document.createElement('span');
+          const div = document.createElement('div'),
+                sw  = document.createElement('span');
           sw.style.cssText='display:inline-block;width:12px;height:12px;margin-right:5px;background:'+p.color;
-          div.append(sw,p.name+(p.ready?' (Ready)':''));
+          div.append(sw, p.name + (p.ready?' (Ready)':''));
           lobbyList.append(div);
         });
-        myIndex=players.findIndex(p=>p.id===clientId);
-        myNameInput.value=players[myIndex].name;
-        myColorSelect.value=players[myIndex].color;
+        myIndex = players.findIndex(p=>p.id===clientId);
+        myNameInput.value  = players[myIndex]?.name || '';
+        myColorSelect.value= players[myIndex]?.color||DEFAULT_COLORS[0];
         myNameInput.disabled=myColorSelect.disabled=readyBtn.disabled=false;
-        readyBtn.textContent=players[myIndex].ready?'Unready':'Ready';
-        if(players[myIndex].id===clientId){
+        readyBtn.textContent=players[myIndex]?.ready?'Unready':'Ready';
+        if(players[myIndex]?.id===clientId){
           hostStartBtn.style.display='inline-block';
-          hostStartBtn.disabled=!(players.length===maxPlayers&&players.every(x=>x.ready));
+          hostStartBtn.disabled = !(players.length===maxPlayers && players.every(x=>x.ready));
         }
       } else {
-        if(mode==='join'&&typeof data.gridSizeDim==='number'){
-          const dim=data.gridSizeDim;
-          gridSize=dim+1;
-          canvas.width=canvas.height=cellPx*dim;
-          gameContainer.style.width=canvas.width+'px';
-          gameContainer.style.height=canvas.height+'px';
+        if(mode==='join' && typeof data.gridSizeDim==='number'){
+          const dim = data.gridSizeDim;
+          gridSize = dim+1;
+          canvas.width = canvas.height = cellPx*dim;
+          gameContainer.style.width  = canvas.width+'px';
+          gameContainer.style.height = canvas.height+'px';
         }
         lobbyOverlay.style.display='none';
         wrapper.style.display='flex'; wrapper.classList.add('flex');
@@ -723,44 +770,45 @@
       }
     }
 
-    // -- LOBBY CONTROLS --
-    readyBtn.onclick      =()=>{ players[myIndex].ready=!players[myIndex].ready; gameRef.update({players}); };
-    hostStartBtn.onclick  =()=>gameRef.update({started:true,timestamp:firebase.firestore.FieldValue.serverTimestamp()});
-    myNameInput.onchange  =()=>{ players[myIndex].name=myNameInput.value; gameRef.update({players}); };
-    myColorSelect.onchange=()=>{ players[myIndex].color=myColorSelect.value; gameRef.update({players}); };
+    // Lobby controls
+    readyBtn.onclick      = ()=>{ players[myIndex].ready = !players[myIndex].ready; gameRef.update({ players }); };
+    hostStartBtn.onclick  = ()=>gameRef.update({ started:true, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+    myNameInput.onchange  = ()=>{ p=players[myIndex]; p.name=myNameInput.value; gameRef.update({ players }); };
+    myColorSelect.onchange= ()=>{ p=players[myIndex]; p.color=myColorSelect.value; gameRef.update({ players }); };
 
-    // -- CHAT RENDER --
+    // Render chat
     function renderChat(){
       chatLog.innerHTML='';
       (chatArr||[]).sort((a,b)=>{
-        const ta=a.timestamp.seconds||a.timestamp,
-              tb=b.timestamp.seconds||b.timestamp;
-        return ta-tb;
+        const ta=a.timestamp.seconds||a.timestamp, tb=b.timestamp.seconds||b.timestamp;
+        return ta - tb;
       }).forEach(m=>{
         const t = m.timestamp.seconds
           ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
           : new Date(m.timestamp).toLocaleTimeString();
-        const div=document.createElement('div');
-        div.innerHTML=`<strong>${m.senderName}</strong> [${t}]: ${m.text}`;
+        const div = document.createElement('div');
+        div.innerHTML = `<strong>${m.senderName}</strong> [${t}]: ${m.text}`;
         chatLog.append(div);
       });
-      chatLog.scrollTop=chatLog.scrollHeight;
+      chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    // -- LAST GAME RESULT --
+    // Last result listener with error handler
     db.collection('gameResults')
       .orderBy('timestamp','desc')
       .limit(1)
-      .onSnapshot(snap=>{
-        if(!snap.empty){
-          const d=snap.docs[0].data(),
-                w=d.players[d.winnerIndex].name,
-                s=d.scores[d.winnerIndex];
-          lastResultTextEl.textContent=`${w} won with ${s} territories.`;
-        }
-      });
-
-  }); // end DOMContentLoaded
+      .onSnapshot(
+        snap => {
+          if(!snap.empty){
+            const d = snap.docs[0].data(),
+                  w = d.players[d.winnerIndex].name,
+                  s = d.scores[d.winnerIndex];
+            lastResultTextEl.textContent = `${w} won with ${s} territories.`;
+          }
+        },
+        err => console.warn('gameResults snapshot error:', err)
+      );
+  }); // DOMContentLoaded
   </script>
 </body>
 </html>
