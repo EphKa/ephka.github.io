@@ -68,8 +68,70 @@
   </script>
 </head>
 <body>
-  <!-- Setup, Lobby, etc (unchanged) ... -->
-  <!-- Main Game UI -->
+  <!-- 1) Setup -->
+  <div id="setupOverlay">
+    <div class="dialog">
+      <h3>Setup Game</h3>
+      <label><input type="radio" name="mode" value="local" checked> Local</label>
+      <label><input type="radio" name="mode" value="host"> Host Online</label>
+      <label><input type="radio" name="mode" value="join"> Join Online</label>
+      <br/><br/>
+      <div id="gridSizeConfig">
+        <label>Grid Size:
+          <select id="gridSizeSelect">
+            <option value="10">Small (10×10)</option>
+            <option value="20" selected>Medium (20×20)</option>
+            <option value="50">Large (50×50)</option>
+          </select>
+        </label>
+      </div>
+      <br/><br/>
+      <div id="localConfig">
+        <label>Players: <input type="number" id="playerCount" min="2" max="8" value="2"/></label>
+        <div id="localPlayersConfig"></div>
+      </div>
+      <div id="hostConfig" style="display:none;">
+        <label>Players: <input type="number" id="playerCount" min="2" max="8" value="2"/></label>
+      </div>
+      <div id="joinConfig" style="display:none;">
+        <label>Game ID: <input id="joinGameId" type="text" placeholder="Enter Game ID to join"/></label>
+      </div>
+      <button id="startBtn">Next →</button>
+    </div>
+  </div>
+
+  <!-- 2) Lobby -->
+  <div id="lobbyOverlay" style="display:none;">
+    <div class="dialog">
+      <h3>Game Lobby</h3>
+      <p>Game ID: <strong id="lobbyGameId"></strong></p>
+      <p>Players (<span id="joinedCount">0</span>/<span id="maxPlayersDisplay">0</span>):</p>
+      <div id="lobbyPlayersList"></div>
+      <hr/>
+      <h4>You</h4>
+      <div class="player-row">
+        <label>Name: <input id="myName" type="text"/></label>
+      </div>
+      <div class="player-row">
+        <label>Color:
+          <select id="myColor">
+            <option value="#006400">darkgreen</option>
+            <option value="#ff0000">red</option>
+            <option value="#ffd700">gold</option>
+            <option value="#c71585">mediumvioletred</option>
+            <option value="#00ff00">lime</option>
+            <option value="#00ffff">aqua</option>
+            <option value="#0000ff">blue</option>
+            <option value="#1e90ff">dodgerblue</option>
+          </select>
+        </label>
+      </div>
+      <button id="readyBtn">Ready</button>
+      <button id="hostStartBtn" style="display:none;">Start Game</button>
+    </div>
+  </div>
+
+  <!-- 3) Main Game UI -->
   <div id="wrapper">
     <h2>Grid Territory</h2>
     <div id="main">
@@ -112,10 +174,7 @@
     const $ = id => document.getElementById(id);
 
     // UI refs
-    const canvas            = $('gameCanvas'),
-          ctx               = canvas.getContext('2d'),
-          gameContainer     = $('game-container'),
-          modeRadios        = document.getElementsByName('mode'),
+    const modeRadios        = document.getElementsByName('mode'),
           gridSizeConfig    = $('gridSizeConfig'),
           gridSizeSelect    = $('gridSizeSelect'),
           localConfig       = $('localConfig'),
@@ -146,7 +205,10 @@
           pingBtn           = $('pingBtn'),
           scoreListUl       = $('scoreList'),
           possibleCountEl   = $('possibleCount'),
-          lastResultTextEl  = $('lastResultText');
+          lastResultTextEl  = $('lastResultText'),
+          canvas            = $('gameCanvas'),
+          ctx               = canvas.getContext('2d'),
+          gameContainer     = $('game-container');
 
     const DEFAULT_COLORS = [
       '#006400','#ff0000','#ffd700','#c71585',
@@ -156,13 +218,12 @@
     let mode, gridSize, maxPlayers, myIndex, gameRef, started=false;
     let players=[], lines=[], chatArr=[], turnIndex=0;
     let endpoints,mids,horiz,vert,cells;
-    const cellPx = 20;
-    const borderPx = cellPx;   // must match CSS border
+    const cellPx = 20, borderPx = 20; // must match CSS border
 
-    // Ping state: only one rect, blinks twice (4 toggles)
+    // Ping: single rectangle, blink twice
     let pings = [], pingMode=false, pingToggle=true;
 
-    // Game-over flag
+    // Game over flag
     let gameOver = false;
 
     // Show/hide setup panels
@@ -176,7 +237,7 @@
     modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
     updateConfig();
 
-    // Render local-player inputs
+    // Local players UI
     function renderLocalPlayerConfig(){
       const cnt=+playerCountIn.value;
       localPlayersConfig.innerHTML='';
@@ -201,26 +262,26 @@
     renderLocalPlayerConfig();
     playerCountIn.addEventListener('input',renderLocalPlayerConfig);
 
-    // Convert raw px (including border) → grid coord
+    // Convert raw px (including border) to grid coord
     function px2g(rawPx){
       const contentPx = rawPx - borderPx;
-      return Math.min(Math.max(Math.round(contentPx/cellPx),0), gridSize-1);
+      return Math.min(Math.max(Math.round(contentPx/cellPx), 0), gridSize-1);
     }
     function g2px(g){ return g*cellPx; }
 
-    // Initialize board arrays
+    // Initialize board
     function makeEmptyCells(){
       return Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
     }
     function initializeGame(){
-      endpoints = Array.from({length:gridSize},()=>Array(gridSize).fill(false));
-      mids      = Array.from({length:gridSize},()=>Array(gridSize).fill(false));
-      horiz     = Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
-      vert      = Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
-      cells     = makeEmptyCells();
+      endpoints=Array.from({length:gridSize},()=>Array(gridSize).fill(false));
+      mids     =Array.from({length:gridSize},()=>Array(gridSize).fill(false));
+      horiz    =Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
+      vert     =Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
+      cells    =makeEmptyCells();
     }
 
-    // Occupy and flood-fill
+    // Occupy + flood-fill
     function canPass(x,y,nx,ny){
       if(x===nx) return !horiz[Math.min(y,ny)+1][x];
       else       return !vert[y][Math.min(x,nx)+1];
@@ -236,7 +297,6 @@
           while(queue.length){
             const {x:cx,y:cy}=queue.shift();
             region.push({x:cx,y:cy});
-            // check escape to border
             if(cx===0      && !vert[cy][0])    escapes=true;
             if(cx===cols-1 && !vert[cy][cols]) escapes=true;
             if(cy===0      && !horiz[0][cx])   escapes=true;
@@ -302,22 +362,20 @@
         const y0=Math.min(sy,ey);
         for(let d=0;d<3;d++){
           const y=y0+d;
-          if((sx-1>=0 && cells[y][sx-1]!==0)||
-             (sx<gridSize-1 && cells[y][sx]!==0))
+          if((sx-1>=0&&cells[y][sx-1]!==0)||(sx<gridSize-1&&cells[y][sx]!==0))
             return false;
         }
       } else {
         const x0=Math.min(sx,ex);
         for(let d=0;d<3;d++){
           const x=x0+d;
-          if((sy-1>=0 && cells[sy-1][x]!==0)||
-             (sy<gridSize-1 && cells[sy][x]!==0))
+          if((sy-1>=0&&cells[sy-1][x]!==0)||(sy<gridSize-1&&cells[sy][x]!==0))
             return false;
         }
       }
       return true;
     }
-    // Only forbid *mutual* endpoint↔midpoint crossing
+    // Only forbid mutual endpoint↔midpoint crossing
     function noMutualEndpointMidViolation(sx,sy,ex,ey){
       const midsNew=[
         {x:sx+(ex-sx)/3,   y:sy+(ey-sy)/3},
@@ -341,10 +399,10 @@
       return true;
     }
 
-    // Draw everything
+    // Draw board
     function draw(){
       ctx.clearRect(0,0,canvas.width,canvas.height);
-      // grid lines
+      // grid
       ctx.strokeStyle='#ddd'; ctx.lineWidth=1;
       for(let i=0;i<gridSize;i++){
         const p=g2px(i);
@@ -362,7 +420,7 @@
           }
         })
       );
-      // lines (last one thicker)
+      // lines
       lines.forEach((ln,i)=>{
         ctx.beginPath();
         ctx.setLineDash([]);
@@ -373,7 +431,7 @@
         ctx.lineTo(g2px(ln.ex),g2px(ln.ey));
         ctx.stroke();
       });
-      // ping blink (only while ping.blinkCount>0)
+      // pings (blink)
       if(pings.length && pingToggle){
         ctx.font=`${cellPx}px sans-serif`;
         pings.forEach(r=>{
@@ -390,8 +448,8 @@
     function updateInfo(){
       const cnts=players.map(()=>0);
       cells.forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
-      infoEl.textContent = 
-        `Turn: ${players[turnIndex].name} | `+
+      infoEl.textContent =
+        `Turn: ${players[turnIndex].name} | ` +
         players.map((p,i)=>`${p.name}: ${cnts[i]}`).join(', ');
     }
     function updateScoreboard(){
@@ -448,7 +506,7 @@
       }
     }
 
-    // Ping blink timer: blink twice (4 toggles), then clear
+    // Ping blink timer: blink twice (4 toggles)
     setInterval(()=>{
       pingToggle = !pingToggle;
       if(pings.length){
@@ -486,7 +544,7 @@
             gx=px2g(e.clientX - r.left),
             gy=px2g(e.clientY - r.top);
 
-      // Ping mode: single cell, blink twice
+      // Ping mode
       if(pingMode){
         pings = [{ x:gx, y:gy, w:1, h:1, blinkCount:4 }];
         pingMode = false;
@@ -494,7 +552,7 @@
         return;
       }
 
-      // Not started or over?
+      // Not started or game over
       if((mode!=='local' && !started) || gameOver){
         debugEl.textContent = gameOver ? 'Game over.' : 'Not started yet.';
         return;
@@ -516,7 +574,7 @@
       debugEl.textContent='';
 
       if(!isStraight3(sx,sy,ex,ey))             debugEl.textContent='Line must be straight & length 3.';
-      else if(!isConnected(sx,sy,ex,ey))        debugEl.textContent='Must touch existing point.';
+      else if(!isConnected(sx,s y,ex,ey))        debugEl.textContent='Must touch existing point.';
       else if(!noNodeReuse(sx,sy,ex,ey))        debugEl.textContent='Cannot cross existing line interior.';
       else if(!noTerritory(sx,sy,ex,ey))        debugEl.textContent='Cannot go through occupied territory.';
       else if(!noMutualEndpointMidViolation(sx,sy,ex,ey))
@@ -554,18 +612,17 @@
 
     // Ping button
     pingBtn.onclick = () => {
-      pingMode=true;
-      debugEl.textContent='Click the cell to ping';
+      pingMode = true;
+      debugEl.textContent = 'Click a cell to ping';
     };
 
-    // Restart
+    // Restart button
     restartBtn.onclick = async ()=>{
       if(mode==='local'){
         lines=[]; turnIndex=0; initializeGame(); draw();
         updateInfo(); updateScoreboard(); updatePossibleMoves();
         gameOver=false;
       } else {
-        // new game doc, keep old history
         const newId=Math.random().toString(36).substr(2,9);
         history.replaceState(null,'','?game='+newId);
         const dim=parseInt(gridSizeSelect.value,10);
@@ -581,7 +638,7 @@
       }
     };
 
-    // Start button (setup→play)
+    // Start button handler
     startBtn.onclick = async ()=>{
       mode = document.querySelector('input[name=mode]:checked').value;
       const dim=parseInt(gridSizeSelect.value,10);
@@ -646,11 +703,11 @@
       gameRef.onSnapshot(doc=>handleSnapshot(doc.data()));
     };
 
-    // Lobby→game snapshot handler
+    // Snapshot handler
     function handleSnapshot(data){
       players   =data.players;
       lines     =data.lines;
-      chat      =data.chat;
+      chatArr   =data.chat;
       turnIndex =data.turnIndex;
       maxPlayers=data.maxPlayers;
       started   =data.started;
@@ -693,25 +750,27 @@
     // Lobby controls
     readyBtn.onclick      =()=>{ players[myIndex].ready=!players[myIndex].ready; gameRef.update({players}); };
     hostStartBtn.onclick  =()=>gameRef.update({started:true, timestamp:firebase.firestore.FieldValue.serverTimestamp()});
-    myNameInput.onchange  =()=>{ players[myIndex].name=myNameInput.value;    gameRef.update({players}); };
+    myNameInput.onchange  =()=>{ players[myIndex].name=myNameInput.value; gameRef.update({players}); };
     myColorSelect.onchange=()=>{ players[myIndex].color=myColorSelect.value; gameRef.update({players}); };
 
-    // Chat rendering
+    // Render chat
     function renderChat(){
       chatLog.innerHTML='';
-      chat.sort((a,b)=>(a.timestamp.seconds||a.timestamp)-(b.timestamp.seconds||b.timestamp))
-          .forEach(m=>{
-            const t=m.timestamp.seconds
-              ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
-              : new Date(m.timestamp).toLocaleTimeString();
-            const div=document.createElement('div');
-            div.innerHTML=`<strong>${m.senderName}</strong> [${t}]: ${m.text}`;
-            chatLog.append(div);
-          });
+      chatArr.sort((a,b)=>(
+        (a.timestamp.seconds||a.timestamp)
+        -(b.timestamp.seconds||b.timestamp)
+      )).forEach(m=>{
+        const t=m.timestamp.seconds
+          ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
+          : new Date(m.timestamp).toLocaleTimeString();
+        const div=document.createElement('div');
+        div.innerHTML=`<strong>${m.senderName}</strong> [${t}]: ${m.text}`;
+        chatLog.append(div);
+      });
       chatLog.scrollTop=chatLog.scrollHeight;
     }
 
-    // Show last result
+    // Show last game result
     db.collection('gameResults')
       .orderBy('timestamp','desc')
       .limit(1)
