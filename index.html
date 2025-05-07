@@ -619,7 +619,10 @@
         });
         gameRef=db.collection('games').doc(newId);
         gameOver=false;
-        gameRef.onSnapshot(handleSnapshot, err=>console.warn('Snapshot error:', err));
+        gameRef.onSnapshot(doc => {
+          const data = doc.data() || {};
+          handleSnapshot(data);
+        }, err => console.warn('Snapshot error:', err));
       }
     };
 
@@ -679,7 +682,10 @@
         });
         await gameRef.update({players});
       }
-      gameRef.onSnapshot(handleSnapshot, err=>console.warn('Snapshot error:', err));
+      gameRef.onSnapshot(doc => {
+        const data = doc.data() || {};
+        handleSnapshot(data);
+      }, err => console.warn('Snapshot error:', err));
     };
 
     // Snapshot handler
