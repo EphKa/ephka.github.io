@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Grid Territory Multiplayer with Indexed Minimap</title>
+  <style>
+    body, html { margin:0; padding:0; width:100%; height:100%; display:flex; justify-content:center; align-items:center; font-family:sans-serif; }
+    #setupOverlay, #lobbyOverlay {
+      position:absolute; top:0; left:0; width:100%; height:100%;
+      background:rgba(255,255,255,0.95);
+      display:flex; justify-content:center; align-items:center; z-index:10;
+    }
+    .dialog { background:#fff; padding:20px; border:1px solid #ccc; border-radius:4px; max-width:400px; width:90%; }
+    .player-row { display:flex; margin-bottom:8px; }
+    .player-row label { flex:1; }
+    #wrapper { display:none; flex-direction:column; width:100%; max-width:1400px; }
+    #main { display:flex; flex:1; }
+    #game-container { background:#fafafa; padding:50px; border-right:1px solid #ccc; }
+    canvas { display:block; border:none!important; }
+    #sidebar { width:300px; display:flex; flex-direction:column; background:#fafafa; padding:8px; }
+    #scoreboard { text-align:center; margin-bottom:16px; }
+    #chatSection { flex:1; display:flex; flex-direction:column; }
+    #chatLog { flex:1; overflow-y:auto; border:1px solid #ccc; padding:5px; background:#fff; }
+    #chatInput { width:100%; padding:4px; box-sizing:border-box; }
+    #chatSendBtn { margin-top:8px; }
+    #info, #debug { margin:8px 0; }
+    #minimapContainer { width:300px; background:#eef; padding:8px; text-align:center; }
+    #minimapCanvas { background:#333; image-rendering:pixelated; width:100%; height:auto; }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+  <!-- SETUP OVERLAY -->
+  <div id="setupOverlay">
+    <div class="dialog">
+      <h3>Setup Game</h3>
+      <label><input type="radio" name="mode" value="local" checked> Local</label>
+      <label><input type="radio" name="mode" value="host"> Host Online</label>
+      <label><input type="radio" name="mode" value="join"> Join Online</label>
+      <div id="gridSizeConfig" style="margin:16px 0;">
+        <label>Grid Size:
+          <select id="gridSizeSelect">
+            <option value="10">10×10</option>
+            <option value="20" selected>20×20</option>
+            <option value="50">50×50</option>
+          </select>
+        </label>
+      </div>
+      <div id="localConfig">
+        <label>Players: <input type="number" id="localPlayerCount" min="2" max="8" value="2"/></label>
+        <div id="localPlayersConfig"></div>
+      </div>
+      <div id="hostConfig" style="display:none;">
+        <label>Players: <input type="number" id="hostPlayerCount" min="2" max="8" value="2"/></label>
+      </div>
+      <div id="joinConfig" style="display:none;">
+        <label>Game ID: <input id="joinGameId" type="text" placeholder="Enter Game ID"/></label>
+      </div>
+      <button id="startBtn" style="margin-top:16px;">Next →</button>
+    </div>
+  </div>
+
+  <!-- LOBBY OVERLAY -->
+  <div id="lobbyOverlay" style="display:none;">
+    <div class="dialog">
+      <h3>Game Lobby</h3>
+      <p>Game ID: <strong id="lobbyGameId"></strong></p>
+      <p>Players (<span id="joinedCount">0</span>/<span id="maxPlayersDisplay">0</span>):</p>
+      <div id="lobbyPlayersList"></div>
+      <hr/>
+      <h4>You</h4>
+      <div class="player-row">
+        <label>Name: <input id="myName" type="text" disabled/></label>
+      </div>
+      <div class="player-row">
+        <label>Color:
+          <select id="myColor" disabled>
+            <option>#006400</option><option>#ff0000</option><option>#ffd700</option>
+            <option>#c71585</option><option>#00ff00</option><option>#00ffff</option>
+            <option>#0000ff</option><option>#1e90ff</option>
+          </select>
+        </label>
+      </div>
+      <button id="readyBtn" disabled>Ready</button>
+      <button id="hostStartBtn" style="display:none;">Start Game</button>
+    </div>
+  </div>
+
+  <!-- MAIN UI -->
+  <div id="wrapper">
+    <h2>Grid Territory</h2>
+    <div id="main">
+      <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="hoverInfo"></div>
+      </div>
+      <div id="sidebar">
+        <div id="scoreboard"><h4>Score</h4><div id="scoreList"></div></div>
+        <div id="chatSection">
+          <h4>Chat</h4><div id="chatLog"></div>
+          <input id="chatInput" type="text" placeholder="Type message..."/>
+          <button id="chatSendBtn">Send</button>
+        </div>
+      </div>
+      <div id="minimapContainer">
+        <h4>Minimap</h4>
+        <canvas id="minimapCanvas"></canvas>
+      </div>
+    </div>
+    <div id="info">Waiting…</div>
+    <div id="debug"></div>
+    <button id="restartBtn">Restart</button>
+    <button id="pingBtn">Ping</button>
+  </div>
+
+  <script>
+  // Firebase init
+  firebase.initializeApp({
+    apiKey: "AIzaSyAlZwiFJYt73ZamlICtOSRUMOmEujPahTY",
+    authDomain: "territory-58483.firebaseapp.com",
+    projectId: "territory-58483"
+  });
+  firebase.auth().signInAnonymously();
+  const db = firebase.firestore();
+
+  // Sprite loader
+  function makeSprite(path) {
+    const img = new Image();
+    img.src = path;
+    img.onload  = ()=>console.log("[OK] ",path);
+    img.onerror = ()=>console.error("[FAIL] ",path);
+    return img;
+  }
+  // Terrain variants
+  const grassSprites = ["grass1.png","grass2.png","grass3.png","grass4.png"].map(f=>makeSprite("assets/"+f));
+  const riverSprites = ["river1.png","river2.png","river3.png"].map(f=>makeSprite("assets/"+f));
+  const treeSprites  = ["tree1.png","tree2.png","tree3.png","tree4.png"].map(f=>makeSprite("assets/"+f));
+
+  // Building files by index
+  const buildingFiles = [
+    "building_1.png","building_2.png","building_3.png","building_4.png",
+    "building_5.png","building_6.png","building_7.png","building_8.png"
+  ];
+  let buildingSprites = [];
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    const $ = id=>document.getElementById(id);
+    const clientId = Math.random().toString(36).slice(2);
+
+    // UI refs
+    const modeRadios = document.getElementsByName("mode"),
+          gridSizeIn = $("gridSizeSelect"),
+          localCount = $("localPlayerCount"),
+          hostCount  = $("hostPlayerCount"),
+          setupOv    = $("setupOverlay"),
+          lobbyOv    = $("lobbyOverlay"),
+          startBtn   = $("startBtn"),
+          lobbyId    = $("lobbyGameId"),
+          joinedCt   = $("joinedCount"),
+          maxCt      = $("maxPlayersDisplay"),
+          lobbyList  = $("lobbyPlayersList"),
+          myName     = $("myName"),
+          myColor    = $("myColor"),
+          readyBtn   = $("readyBtn"),
+          hostStart  = $("hostStartBtn"),
+          wrapper    = $("wrapper"),
+          chatLog    = $("chatLog"),
+          chatIn     = $("chatInput"),
+          chatBtn    = $("chatSendBtn"),
+          infoEl     = $("info"),
+          hoverInfo  = $("hoverInfo"),
+          debugEl    = $("debug"),
+          restartBtn = $("restartBtn"),
+          pingBtn    = $("pingBtn"),
+          gameCvs    = $("gameCanvas"),
+          ctx        = gameCvs.getContext("2d"),
+          scoreList  = $("scoreList"),
+          miniCvs    = $("minimapCanvas"),
+          miniCtx    = miniCvs.getContext("2d"),
+          gameCont   = $("game-container");
+
+    // Minimap config
+    const isoW=48, isoH=24;
+    let miniOX, miniOY, bgMap=[], trees=[];
+
+    function initMinimap(){
+      const R = gridSize-1, C = gridSize-1;
+      miniCvs.width  = (R+C)*isoW/2;
+      miniCvs.height = (R+C)*isoH/2 + isoH;
+      miniOX = miniCvs.width/2;
+      miniOY = 10;
+      bgMap = Array.from({length:R},()=>Array(C));
+      for(let y=0;y<R;y++){
+        for(let x=0;x<C;x++){
+          if(Math.random()<0.1) bgMap[y][x]={type:"river",idx:Math.floor(Math.random()*riverSprites.length)};
+          else                 bgMap[y][x]={type:"grass",idx:Math.floor(Math.random()*grassSprites.length)};
+        }
+      }
+      trees=[];
+      for(let y=0;y<R;y++){
+        for(let x=0;x<C;x++){
+          if(bgMap[y][x].type==="grass"&&Math.random()<0.05){
+            trees.push({x,y,idx:Math.floor(Math.random()*treeSprites.length)});
+          }
+        }
+      }
+    }
+    function toIso(x,y){
+      return {
+        px:(x-y)*(isoW/2)+miniOX,
+        py:(x+y)*(isoH/2)+miniOY
+      };
+    }
+    function drawMinimap(){
+      miniCtx.clearRect(0,0,miniCvs.width,miniCvs.height);
+      // bg
+      for(let y=0;y<bgMap.length;y++){
+        for(let x=0;x<bgMap[0].length;x++){
+          let c=bgMap[y][x], p=toIso(x,y);
+          let img=(c.type==="river"?riverSprites[c.idx]:grassSprites[c.idx]);
+          miniCtx.drawImage(img,p.px-isoW/2,p.py-isoH/2,isoW,isoH);
+        }
+      }
+      // trees
+      trees.forEach(t=>{
+        let p=toIso(t.x,t.y);
+        miniCtx.drawImage(treeSprites[t.idx],p.px-isoW/2,p.py-isoH,isoW,isoH);
+      });
+      // buildings
+      for(let y=0;y<cells.length;y++){
+        for(let x=0;x<cells[0].length;x++){
+          let o=cells[y][x];
+          if(o>0){
+            let img=buildingSprites[o-1];
+            if(!img){ console.error("No buildingSprites["+(o-1)+"]"); continue; }
+            let p=toIso(x,y);
+            miniCtx.drawImage(img,p.px-isoW/2,p.py-isoH,isoW,isoH);
+          }
+        }
+      }
+    }
+
+    // Core game vars
+    const cellSize=20;
+    const DEFAULT_COLORS=["#006400","#ff0000","#ffd700","#c71585","#00ff00","#00ffff","#0000ff","#1e90ff"];
+    let mode, gridSize, maxPlayers, myIndex=-1, gameRef, started=false;
+    let players=[], lines=[], chatArr=[], turnIndex=0, pings=[];
+    let endpoints,mids,horiz,vert,cells;
+    let pingMode=false, pingToggle=true, gameOver=false;
+
+    // Helpers
+    function px2g(px){return Math.max(0,Math.min(gridSize-1,Math.round(px/cellSize)));}
+    function g2px(g){return g*cellSize;}
+    function makeEmpty(){return Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));}
+    function initializeGame(){
+      endpoints=Array.from({length:gridSize},()=>Array(gridSize).fill(false));
+      mids     =Array.from({length:gridSize},()=>Array(gridSize).fill(false));
+      horiz    =Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
+      vert     =Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
+      cells    = makeEmpty();
+    }
+    function canPass(x,y,nx,ny){return x===nx?!horiz[Math.min(y,ny)+1][x]:!vert[y][Math.min(x,nx)+1];}
+    function fillTerr(pl){
+      const R=gridSize-1,C=gridSize-1;
+      const vis=Array.from({length:R},()=>Array(C).fill(false));
+      for(let yy=0;yy<R;yy++){
+        for(let xx=0;xx<C;xx++){
+          if(vis[yy][xx]||cells[yy][xx]) continue;
+          let q=[{x:xx,y:yy}],reg=[],esc=false;vis[yy][xx]=true;
+          while(q.length){
+            let {x:cx,y:cy}=q.shift();
+            reg.push({x:cx,y:cy});
+            if((cx===0&&!vert[cy][0])||(cx===C-1&&!vert[cy][C])||
+               (cy===0&&!horiz[0][cx])||(cy===R-1&&!horiz[R][cx])){
+              esc=true;
+            }
+            [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+              let nx=cx+dx,ny=cy+dy;
+              if(nx>=0&&nx<C&&ny>=0&&ny<R&&!vis[ny][nx]&&canPass(cx,cy,nx,ny)){
+                vis[ny][nx]=true; q.push({x:nx,y:ny});
+              }
+            });
+          }
+          if(!esc) reg.forEach(p=>cells[p.y][p.x]=pl+1);
+        }
+      }
+    }
+    function occupy(sx,sy,ex,ey,p){
+      if(sx===ex){
+        let y0=Math.min(sy,ey);
+        for(let d=0;d<3;d++) vert[y0+d][sx]=true;
+      } else {
+        let x0=Math.min(sx,ex);
+        for(let d=0;d<3;d++) horiz[sy][x0+d]=true;
+      }
+      endpoints[sy][sx]=true; endpoints[ey][ex]=true;
+      let midsNew=[
+        {x:sx+(ex-sx)/3, y:sy+(ey-sy)/3},
+        {x:sx+2*(ex-sx)/3, y:sy+2*(ey-sy)/3}
+      ];
+      midsNew.forEach(m=>mids[m.y][m.x]=true);
+      fillTerr(p);
+    }
+    function isStraight3(sx,sy,ex,ey){
+      let dx=Math.abs(ex-sx),dy=Math.abs(ey-sy);
+      return (dx===3&&dy===0)||(dx===0&&dy===3);
+    }
+    function isConnected(sx,sy,ex,ey){
+      if(!lines.length) return true;
+      let pts=[{x:sx,y:sy},{x:ex,y:ey},
+               {x:sx+(ex-sx)/3,y:sy+(ey-sy)/3},
+               {x:sx+2*(ex-sx)/3,y:sy+2*(ey-sy)/3}];
+      return pts.some(p=>endpoints[p.y][p.x]||mids[p.y][p.x]);
+    }
+    function noNodeReuse(sx,sy,ex,ey){
+      let midsNew=[{x:sx+(ex-sx)/3,y:sy+(ey-sy)/3},
+                   {x:sx+2*(ex-sx)/3,y:sy+2*(ey-sy)/3}];
+      return midsNew.every(m=>!mids[m.y][m.x]);
+    }
+    function noTerritory(sx,sy,ex,ey){
+      if(sx===ex){
+        let y0=Math.min(sy,ey);
+        for(let d=0;d<3;d++){
+          let y=y0+d;
+          if((sx-1>=0&&cells[y][sx-1])||(sx<gridSize-1&&cells[y][sx])) return false;
+        }
+      } else {
+        let x0=Math.min(sx,ex);
+        for(let d=0;d<3;d++){
+          let x=x0+d;
+          if((sy-1>=0&&cells[sy-1][x])||(sy<gridSize-1&&cells[sy][x])) return false;
+        }
+      }
+      return true;
+    }
+    function noMutualEndpointMidViolation(sx,sy,ex,ey){
+      let midsNew=[{x:sx+(ex-sx)/3,y:sy+(ey-sy)/3},
+                   {x:sx+2*(ex-sx)/3,y:sy+2*(ey-sy)/3}];
+      let endsNew=[{x:sx,y:sy},{x:ex,y:ey}];
+      for(let ln of lines){
+        let midsOld=[{x:ln.sx+(ln.ex-ln.sx)/3,y:ln.sy+(ln.ey-ln.sy)/3},
+                     {x:ln.sx+2*(ln.ex-ln.sx)/3,y:ln.sy+2*(ln.ey-ln.sy)/3}];
+        let endsOld=[{x:ln.sx,y:ln.sy},{x:ln.ex,y:ln.ey}];
+        let epOnOldMid=endsNew.some(eN=>midsOld.some(mO=>eN.x===mO.x&&eN.y===mO.y));
+        let oldEpOnNewMid=endsOld.some(eO=>midsNew.some(mN=>eO.x===mN.x&&eO.y===mN.y));
+        if(epOnOldMid&&oldEpOnNewMid) return false;
+      }
+      return true;
+    }
+
+    function draw(){
+      // clear & grid
+      ctx.clearRect(0,0,gameCvs.width,gameCvs.height);
+      ctx.strokeStyle="#ddd"; ctx.lineWidth=1;
+      for(let i=0;i<gridSize;i++){
+        let p=g2px(i);
+        ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,gameCvs.height);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(gameCvs.width,p);ctx.stroke();
+      }
+      // territories
+      cells.forEach((row,y)=>row.forEach((c,x)=>{
+        if(c>0){
+          ctx.globalAlpha=0.2;
+          ctx.fillStyle=players[c-1].color;
+          ctx.fillRect(g2px(x),g2px(y),cellSize,cellSize);
+          ctx.globalAlpha=1;
+        }
+      }));
+      // lines
+      lines.forEach((ln,i)=>{
+        ctx.beginPath();ctx.setLineDash([]);ctx.lineCap="round";
+        ctx.lineWidth=(i===lines.length-1?6:4);
+        ctx.strokeStyle=players[ln.playerIndex].color;
+        ctx.moveTo(g2px(ln.sx),g2px(ln.sy));
+        ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();
+      });
+      // pings
+      if(pings.length&&pingToggle){
+        ctx.font=`${cellSize}px sans-serif`;
+        pings.forEach(p=>ctx.fillText("⚠️",g2px(p.x),g2px(p.y+1)));
+      }
+      // minimap
+      drawMinimap();
+    }
+
+    function updateScore(){
+      let cnts=players.map(()=>0);
+      cells.forEach(r=>r.forEach(c=>{ if(c>0) cnts[c-1]++; }));
+      scoreList.innerHTML="";
+      players.forEach((p,i)=>{
+        let d=document.createElement("div");
+        d.innerHTML=`${p.name}: ${cnts[i]} <span style="color:${p.color}">▩</span>`;
+        scoreList.append(d);
+      });
+      infoEl.textContent=`Turn: ${players[turnIndex]?.name||""}`;
+    }
+
+    function possibleMoves(){
+      let c=0;
+      for(let y=0;y<gridSize;y++){
+        for(let x=0;x<gridSize;x++){
+          [[3,0],[-3,0],[0,3],[0,-3]].forEach(([dx,dy])=>{
+            let ex=x+dx,ey=y+dy;
+            if(ex<0||ex>=gridSize||ey<0||ey>=gridSize) return;
+            if(isStraight3(x,y,ex,ey)&&isConnected(x,y,ex,ey)&&
+               noNodeReuse(x,y,ex,ey)&&noTerritory(x,y,ex,ey)&&
+               noMutualEndpointMidViolation(x,y,ex,ey)) c++;
+          });
+        }
+      }
+      return c;
+    }
+    function checkEnd(){ if(possibleMoves()===0&&!gameOver) endGame(); }
+    async function endGame(){
+      gameOver=true;
+      let cnts=players.map(()=>0);
+      cells.forEach(r=>r.forEach(c=>{ if(c>0) cnts[c-1]++; }));
+      let wi=cnts.indexOf(Math.max(...cnts)), wn=players[wi]?.name;
+      alert(`Game over! ${wn} wins with ${cnts[wi]} territories.`);
+    }
+
+    // blink pings
+    setInterval(()=>{
+      pingToggle=!pingToggle;
+      if(pings.length){
+        pings.forEach(p=>p.blinkCount--);
+        if(pings[0].blinkCount<=0) pings=[];
+      }
+      draw();
+    },500);
+
+    // UI config
+    function updateConfig(){
+      let m=document.querySelector('input[name=mode]:checked').value;
+      $("gridSizeConfig").style.display=m==="join"?"none":"block";
+      $("localConfig").style.display=m==="local"?"block":"none";
+      $("hostConfig").style.display=m==="host"?"block":"none";
+      $("joinConfig").style.display=m==="join"?"block":"none";
+    }
+    modeRadios.forEach(r=>r.addEventListener("change",updateConfig));
+    updateConfig();
+
+    // local player inputs
+    function renderLocalPlayers(){
+      let cnt=+localCount.value;
+      $("localPlayersConfig").innerHTML="";
+      for(let i=1;i<=cnt;i++){
+        let d=document.createElement("div");
+        d.className="player-row";
+        d.innerHTML=`
+          <label>Name:<input class="localName" data-i="${i-1}" value="Player ${i}"></label>
+          <label>Color:
+            <select class="localColor" data-i="${i-1}">${DEFAULT_COLORS.map(c=>`<option>${c}</option>`).join("")}</select>
+          </label>`;
+        $("localPlayersConfig").append(d);
+      }
+    }
+    localCount.addEventListener("input",renderLocalPlayers);
+    renderLocalPlayers();
+
+    // start button
+    startBtn.onclick=async()=>{
+      let m=document.querySelector('input[name=mode]:checked').value;
+      mode=m;
+      let dim=+gridSizeIn.value;
+      if(mode!=="join"){
+        gridSize=dim+1;
+        gameCvs.width=gameCvs.height=cellSize*dim;
+        gameCont.style.width=gameCont.style.height=cellSize*dim+"px";
+        initMinimap();
+      }
+      if(mode==="local"){
+        maxPlayers=+localCount.value;
+        players=[];
+        document.querySelectorAll(".localName").forEach(el=>{
+          let i=+el.dataset.i;
+          players.push({
+            id:null,
+            name:el.value,
+            color:document.querySelector(`.localColor[data-i="${i}"]`).value
+          });
+        });
+        buildingSprites = players.map((_,i)=>makeSprite("assets/"+(buildingFiles[i]||buildingFiles[0])));
+        setupOv.style.display="none";
+        initializeGame();
+        draw();
+        wrapper.style.display="flex";
+      } else {
+        // host/join
+        maxPlayers = mode==="host"?+hostCount.value: null;
+        let gid = mode==="host"
+          ? (history.replaceState(null,"","?game="+(gid=Math.random().toString(36).slice(2))), gid)
+          : $("joinGameId").value.trim();
+        if(mode==="join" && !gid) return alert("Enter Game ID");
+        setupOv.style.display="none";
+        lobbyOv.style.display="flex";
+        lobbyId.textContent=gid;
+        maxCt.textContent = maxPlayers;
+        gameRef = db.collection("games").doc(gid);
+        if(mode==="host"){
+          players=[{id:clientId,name:"Player 1",color:DEFAULT_COLORS[0],ready:false}];
+          await gameRef.set({
+            maxPlayers, players, turnIndex:0,
+            lines:[], chat:[], started:false,
+            gridSizeDim:dim,
+            timestamp:firebase.firestore.FieldValue.serverTimestamp(),
+            pings:[]
+          });
+        } else {
+          let snap=await gameRef.get();
+          if(!snap.exists) return alert("Game not found");
+          let data=snap.data();
+          if(data.players.length>=data.maxPlayers) return alert("Full");
+          players=data.players;
+          players.push({
+            id:clientId,
+            name:`Player ${players.length+1}`,
+            color:DEFAULT_COLORS[players.length%DEFAULT_COLORS.length],
+            ready:false
+          });
+          await gameRef.update({players});
+        }
+        gameRef.onSnapshot(doc=>handleSnapshot(doc.data()||{}));
+      }
+    };
+
+    // snapshot handler
+    function handleSnapshot(data){
+      players    = data.players    || players;
+      lines      = data.lines      || lines;
+      chatArr    = data.chat       || chatArr;
+      turnIndex  = typeof data.turnIndex==="number"?data.turnIndex:turnIndex;
+      maxPlayers = typeof data.maxPlayers==="number"?data.maxPlayers:maxPlayers;
+      started    = !!data.started;
+      pings      = Array.isArray(data.pings)?data.pings:pings;
+
+      if(!started){
+        joinedCt.textContent=players.length;
+        lobbyList.innerHTML="";
+        players.forEach(p=>{
+          let d=document.createElement("div"), sw=document.createElement("span");
+          sw.style.cssText="display:inline-block;width:12px;height:12px;margin-right:5px;background:"+p.color;
+          d.append(sw,p.name+(p.ready?" (Ready)":""));
+          lobbyList.append(d);
+        });
+        myIndex=players.findIndex(p=>p.id===clientId);
+        if(myIndex>=0){
+          myName.disabled=myColor.disabled=readyBtn.disabled=false;
+          myName.value=players[myIndex].name;
+          myColor.value=players[myIndex].color;
+          readyBtn.textContent=players[myIndex].ready?"Unready":"Ready";
+        }
+        if(players[myIndex]?.id===clientId){
+          hostStart.style.display="inline-block";
+          hostStart.disabled=!(players.length===maxPlayers && players.every(x=>x.ready));
+        }
+      } else {
+        // assign building sprites by index
+        buildingSprites = players.map((_,i)=>makeSprite("assets/"+(buildingFiles[i]||buildingFiles[0])));
+        initMinimap();
+        lobbyOv.style.display="none";
+        wrapper.style.display="flex";
+        chatLog.parentElement.style.display="flex";
+
+        initializeGame();
+        lines.forEach(ln=>occupy(ln.sx,ln.sy,ln.ex,ln.ey,ln.playerIndex));
+        draw();
+        renderChat();
+        updateScore();
+        checkEnd();
+      }
+    }
+
+    // lobby interactions
+    myName.onchange = ()=>{ if(myIndex<0) return; players[myIndex].name=myName.value; gameRef.update({players}); };
+    myColor.onchange= ()=>{ if(myIndex<0) return; players[myIndex].color=myColor.value; gameRef.update({players}); };
+    readyBtn.onclick=()=>{ if(myIndex<0) return; players[myIndex].ready=!players[myIndex].ready; gameRef.update({players}); };
+    hostStart.onclick=async()=>{ await gameRef.update({started:true, timestamp:firebase.firestore.FieldValue.serverTimestamp()}); };
+
+    // canvas events
+    let clickStart=null;
+    gameCvs.addEventListener("mousemove",e=>{
+      let r=gameCvs.getBoundingClientRect(), gx=px2g(e.clientX-r.left), gy=px2g(e.clientY-r.top);
+      if(clickStart){
+        draw();
+        ctx.beginPath();ctx.setLineDash([5,5]);ctx.lineWidth=2;ctx.strokeStyle="gray";
+        ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));
+        ctx.lineTo(g2px(gx),g2px(gy));ctx.stroke();ctx.setLineDash([]);
+      } else hoverInfo.textContent=`Hovered: (${gx},${gy})`;
+    });
+    gameCvs.addEventListener("mouseleave",()=>hoverInfo.textContent="");
+    gameCvs.addEventListener("click",async e=>{
+      let r=gameCvs.getBoundingClientRect(), gx=px2g(e.clientX-r.left), gy=px2g(e.clientY-r.top);
+      if(pingMode){
+        let po={x:gx,y:gy,blinkCount:4};
+        if(mode!=="local"){ await gameRef.update({pings:[po]}); setTimeout(()=>gameRef.update({pings:[]}),2000); }
+        pings=[po]; pingMode=false; debugEl.textContent=""; draw(); return;
+      }
+      if((mode!=="local"&&!started)||gameOver){
+        debugEl.textContent=gameOver?"Game over.":"Not started.";clickStart=null;return;
+      }
+      if(mode!=="local"&&turnIndex!==myIndex){
+        debugEl.textContent="Not your turn.";clickStart=null;return;
+      }
+      if(!clickStart){ clickStart={x:gx,y:gy}; return; }
+      let sx=clickStart.x, sy=clickStart.y; clickStart=null; debugEl.textContent="";
+      let ex=gx, ey=gy;
+      if(!isStraight3(sx,sy,ex,ey)) debugEl.textContent="Line must be straight & length 3.";
+      else if(!isConnected(sx,sy,ex,ey)) debugEl.textContent="Must touch existing point.";
+      else if(!noNodeReuse(sx,sy,ex,ey)) debugEl.textContent="Cannot cross interior.";
+      else if(!noTerritory(sx,sy,ex,ey)) debugEl.textContent="Cannot go through territory.";
+      else if(!noMutualEndpointMidViolation(sx,sy,ex,ey)) debugEl.textContent="Illegal endpoint↔midpoint cross.";
+      else {
+        if(mode!=="local"){
+          let newL=[...lines,{sx,sy,ex,ey,playerIndex:turnIndex}];
+          let nxt=(turnIndex+1)%players.length;
+          await gameRef.update({lines:newL,turnIndex:nxt,lastUpdate:firebase.firestore.FieldValue.serverTimestamp()});
+        } else {
+          lines.push({sx,sy,ex,ey,playerIndex:turnIndex});
+          occupy(sx,sy,ex,ey,turnIndex);
+          turnIndex=(turnIndex+1)%players.length;
+          draw(); updateScore(); checkEnd();
+        }
+      }
+    });
+
+    // chat
+    chatBtn.onclick=()=>{
+      let txt=chatIn.value.trim(); if(!txt) return;
+      let msg={senderId:clientId,senderName:players[myIndex]?.name,text:txt,timestamp:firebase.firestore.Timestamp.now()};
+      gameRef.update({chat:firebase.firestore.FieldValue.arrayUnion(msg),lastUpdate:firebase.firestore.FieldValue.serverTimestamp()});
+      chatIn.value="";
+    };
+    function renderChat(){
+      chatLog.innerHTML="";
+      chatArr.slice().sort((a,b)=>{
+        let ta=a.timestamp.seconds||a.timestamp, tb=b.timestamp.seconds||b.timestamp;
+        return ta-tb;
+      }).forEach(m=>{
+        let t=m.timestamp.seconds
+              ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
+              : new Date(m.timestamp).toLocaleTimeString();
+        let d=document.createElement("div");
+        d.innerHTML=`<strong>${m.senderName}</strong> [${t}]: ${m.text}`;
+        chatLog.append(d);
+      });
+      chatLog.scrollTop=chatLog.scrollHeight;
+    }
+
+    // ping
+    pingBtn.onclick=()=>{ pingMode=true; debugEl.textContent="Click a cell to ping"; };
+
+    // restart
+    restartBtn.onclick=async()=>{
+      if(mode==="local"){
+        lines=[]; turnIndex=0; initializeGame(); draw(); gameOver=false; checkEnd();
+      } else {
+        let newId=Math.random().toString(36).slice(2);
+        history.replaceState(null,"","?game="+newId);
+        let dim=+gridSizeIn.value;
+        await db.collection("games").doc(newId).set({
+          maxPlayers, players, turnIndex:0, lines:[], chat:[],
+          started:true, gridSizeDim:dim,
+          timestamp:firebase.firestore.FieldValue.serverTimestamp(),
+          pings:[]
+        });
+        gameRef=db.collection("games").doc(newId); gameOver=false;
+        gameRef.onSnapshot(doc=>handleSnapshot(doc.data()||{}));
+      }
+    };
+
+  }); // DOMContentLoaded
+  </script>
+</body>
+</html>
