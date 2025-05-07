@@ -46,25 +46,9 @@
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore-compat.js"></script>
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyAlZwiFJYt73ZamlICtOSRUMOmEujPahTY",
-      authDomain: "territory-58483.firebaseapp.com",
-      projectId: "territory-58483",
-      storageBucket: "territory-58483.firebasestorage.app",
-      messagingSenderId: "848779508191",
-      appId: "1:848779508191:web:54af4953cb1ce7c8b5ac6a",
-      measurementId: "G-MH6R28JNMQ"
-    };
-    firebase.initializeApp(firebaseConfig);
-    firebase.auth().signInAnonymously()
-      .then(() => console.log("Signed in anonymously, UID =", firebase.auth().currentUser.uid))
-      .catch(err => console.error("Auth failed:", err));
-    const db = firebase.firestore();
-  </script>
 </head>
 <body>
-  <!-- 1) Setup -->
+  <!-- SETUP OVERLAY -->
   <div id="setupOverlay">
     <div class="dialog">
       <h3>Setup Game</h3>
@@ -96,7 +80,7 @@
     </div>
   </div>
 
-  <!-- 2) Lobby -->
+  <!-- LOBBY OVERLAY -->
   <div id="lobbyOverlay" style="display:none;">
     <div class="dialog">
       <h3>Game Lobby</h3>
@@ -127,7 +111,7 @@
     </div>
   </div>
 
-  <!-- 3) Main Game UI -->
+  <!-- MAIN UI -->
   <div id="wrapper">
     <h2>Grid Territory</h2>
     <div id="main">
@@ -162,8 +146,26 @@
   </div>
 
   <script>
+  // -- FIREBASE INIT --
+  const firebaseConfig = {
+    apiKey: "AIzaSyAlZwiFJYt73ZamlICtOSRUMOmEujPahTY",
+    authDomain: "territory-58483.firebaseapp.com",
+    projectId: "territory-58483",
+    storageBucket: "territory-58483.firebasestorage.app",
+    messagingSenderId: "848779508191",
+    appId: "1:848779508191:web:54af4953cb1ce7c8b5ac6a",
+    measurementId: "G-MH6R28JNMQ"
+  };
+  firebase.initializeApp(firebaseConfig);
+  firebase.auth().signInAnonymously()
+    .then(() => console.log("Signed in anonymously, UID =", firebase.auth().currentUser.uid))
+    .catch(err => console.error("Auth failed:", err));
+  const db = firebase.firestore();
+
   document.addEventListener('DOMContentLoaded', () => {
+    // -- SHORTCUTS & GLOBAL STATE --
     const $ = id => document.getElementById(id);
+    const clientId = Math.random().toString(36).substr(2,9);
 
     // UI refs
     const modeRadios        = document.getElementsByName('mode'),
@@ -202,87 +204,83 @@
           ctx               = canvas.getContext('2d'),
           gameContainer     = $('game-container');
 
-    const DEFAULT_COLORS = [
-      '#006400','#ff0000','#ffd700','#c71585',
-      '#00ff00','#00ffff','#0000ff','#1e90ff'
-    ];
-
+    // Constants & state
+    const DEFAULT_COLORS = ['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'];
     let mode, gridSize, maxPlayers, myIndex, gameRef, started=false;
     let players=[], lines=[], chatArr=[], turnIndex=0;
-    let endpoints,mids,horiz,vert,cells;
-    const cellPx = 20, borderPx = 20; // match CSS border
+    let endpoints, mids, horiz, vert, cells;
+    const cellPx = 20, borderPx = 20;
+    let pings = [], pingMode=false, pingToggle=true, gameOver=false;
 
-    // Ping: single rect, blink twice
-    let pings = [], pingMode=false, pingToggle=true;
-    let gameOver = false;
-
-    // updateConfig with guard
+    // -- CONFIG PANEL LOGIC --
     function updateConfig(){
       const sel = document.querySelector('input[name=mode]:checked');
       mode = sel ? sel.value : 'local';
-      gridSizeConfig.style.display = (mode==='join')?'none':'block';
-      localConfig .style.display   = (mode==='local')?'block':'none';
-      hostConfig  .style.display   = (mode==='host')?'block':'none';
-      joinConfig  .style.display   = (mode==='join')?'block':'none';
+      gridSizeConfig.style.display = mode==='join'?'none':'block';
+      localConfig .style.display   = mode==='local'?'block':'none';
+      hostConfig  .style.display   = mode==='host'?'block':'none';
+      joinConfig  .style.display   = mode==='join'?'block':'none';
     }
     modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
     updateConfig();
 
     function renderLocalPlayerConfig(){
-      const cnt=+playerCountIn.value;
-      localPlayersConfig.innerHTML='';
+      const cnt = +playerCountIn.value;
+      localPlayersConfig.innerHTML = '';
       for(let i=1;i<=cnt;i++){
-        const div=document.createElement('div');
-        div.className='player-row';
-        div.innerHTML=`
-          <label>Name:
-            <input type="text" class="localNameInput" data-idx="${i-1}" value="Player ${i}"/>
-          </label>
-          <label>Color:
-            <select class="localColorSelect" data-idx="${i-1}">
-              ${DEFAULT_COLORS.map((c,j)=>
-                `<option value="${c}" ${j===i-1?'selected':''}>${c}</option>`
-              ).join('')}
-            </select>
-          </label>
-        `;
+        const div = document.createElement('div');
+        div.className = 'player-row';
+        div.innerHTML = `
+         <label>Name:
+           <input type="text" class="localNameInput" data-idx="${i-1}" value="Player ${i}"/>
+         </label>
+         <label>Color:
+           <select class="localColorSelect" data-idx="${i-1}">
+             ${DEFAULT_COLORS.map((c,j)=>
+               `<option value="${c}" ${j===i-1?'selected':''}>${c}</option>`
+             ).join('')}
+           </select>
+         </label>`;
         localPlayersConfig.append(div);
       }
     }
     renderLocalPlayerConfig();
     playerCountIn.addEventListener('input',renderLocalPlayerConfig);
 
+    // -- GRID UTILS --
     function px2g(rawPx){
       const contentPx = rawPx - borderPx;
-      return Math.min(Math.max(Math.round(contentPx/cellPx),0), gridSize-1);
+      return Math.min(Math.max(Math.round(contentPx/cellPx),0),gridSize-1);
     }
     function g2px(g){ return g*cellPx; }
 
+    // -- GAME STATE INIT --
     function makeEmptyCells(){
       return Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
     }
     function initializeGame(){
-      endpoints=Array.from({length:gridSize},()=>Array(gridSize).fill(false));
-      mids     =Array.from({length:gridSize},()=>Array(gridSize).fill(false));
-      horiz    =Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
-      vert     =Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
-      cells    =makeEmptyCells();
+      endpoints = Array.from({length:gridSize},()=>Array(gridSize).fill(false));
+      mids      = Array.from({length:gridSize},()=>Array(gridSize).fill(false));
+      horiz     = Array.from({length:gridSize},()=>Array(gridSize-1).fill(false));
+      vert      = Array.from({length:gridSize-1},()=>Array(gridSize).fill(false));
+      cells     = makeEmptyCells();
     }
 
+    // -- TERRITORY LOGIC --
     function canPass(x,y,nx,ny){
       if(x===nx) return !horiz[Math.min(y,ny)+1][x];
       else       return !vert[y][Math.min(x,nx)+1];
     }
     function fillTerritories(pl){
-      const rows=gridSize-1, cols=gridSize-1;
-      const vis=Array.from({length:rows},()=>Array(cols).fill(false));
+      const rows = gridSize-1, cols = gridSize-1;
+      const vis = Array.from({length:rows},()=>Array(cols).fill(false));
       for(let y=0;y<rows;y++){
         for(let x=0;x<cols;x++){
           if(vis[y][x]||cells[y][x]!==0) continue;
           let queue=[{x,y}], region=[], escapes=false;
           vis[y][x]=true;
           while(queue.length){
-            const {x:cx,y:cy}=queue.shift();
+            const {x:cx,y:cy} = queue.shift();
             region.push({x:cx,y:cy});
             if(cx===0      && !vert[cy][0])    escapes=true;
             if(cx===cols-1 && !vert[cy][cols]) escapes=true;
@@ -313,7 +311,7 @@
       }
       endpoints[sy][sx]=true;
       endpoints[ey][ex]=true;
-      const midsNew=[
+      const midsNew = [
         {x:sx+(ex-sx)/3,   y:sy+(ey-sy)/3},
         {x:sx+2*(ex-sx)/3, y:sy+2*(ey-sy)/3}
       ];
@@ -321,12 +319,13 @@
       fillTerritories(p);
     }
 
+    // -- RULES --
     function isStraight3(sx,sy,ex,ey){
       const dx=Math.abs(ex-sx), dy=Math.abs(ey-sy);
       return (dx===3&&dy===0)||(dx===0&&dy===3);
     }
     function isConnected(sx,sy,ex,ey){
-      if(lines.length===0) return true;
+      if(!(lines||[]).length) return true;
       const pts=[
         {x:sx,y:sy},{x:ex,y:ey},
         {x:sx+(ex-sx)/3,   y:sy+(ey-sy)/3},
@@ -367,7 +366,7 @@
         {x:sx+2*(ex-sx)/3, y:sy+2*(ey-sy)/3}
       ];
       const endsNew=[{x:sx,y:sy},{x:ex,y:ey}];
-      for(const ln of lines){
+      for(const ln of (lines||[])){
         const midsOld=[
           {x:ln.sx+(ln.ex-ln.sx)/3,   y:ln.sy+(ln.ey-ln.sy)/3},
           {x:ln.sx+2*(ln.ex-ln.sx)/3, y:ln.sy+2*(ln.ey-ln.sy)/3}
@@ -384,15 +383,18 @@
       return true;
     }
 
+    // -- DRAW --
     function draw(){
       ctx.clearRect(0,0,canvas.width,canvas.height);
+      // grid
       ctx.strokeStyle='#ddd'; ctx.lineWidth=1;
       for(let i=0;i<gridSize;i++){
         const p=g2px(i);
         ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,canvas.height); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(canvas.width,p);   ctx.stroke();
       }
-      cells.forEach((row,y)=>
+      // territories
+      (cells||[]).forEach((row,y)=>
         row.forEach((c,x)=>{
           if(c>0){
             ctx.globalAlpha=0.2;
@@ -402,7 +404,8 @@
           }
         })
       );
-      lines.forEach((ln,i)=>{
+      // lines
+      (lines||[]).forEach((ln,i)=>{
         ctx.beginPath();
         ctx.setLineDash([]);
         ctx.lineCap='round';
@@ -412,6 +415,7 @@
         ctx.lineTo(g2px(ln.ex),g2px(ln.ey));
         ctx.stroke();
       });
+      // ping blink
       if(pings.length && pingToggle){
         ctx.font=`${cellPx}px sans-serif`;
         pings.forEach(r=>{
@@ -424,16 +428,17 @@
       }
     }
 
+    // -- INFO & SCOREBOARD --
     function updateInfo(){
       const cnts=players.map(()=>0);
-      cells.forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
+      (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
       infoEl.textContent=
         `Turn: ${players[turnIndex].name} | ` +
         players.map((p,i)=>`${p.name}: ${cnts[i]}`).join(', ');
     }
     function updateScoreboard(){
       const cnts=players.map(()=>0);
-      cells.forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
+      (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
       scoreListUl.innerHTML='';
       players.forEach((p,i)=>{
         const li=document.createElement('li');
@@ -467,7 +472,7 @@
     async function endGame(){
       gameOver=true;
       const cnts=players.map(()=>0);
-      cells.forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
+      (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
       const maxTerr=Math.max(...cnts),
             winnerIdx=cnts.indexOf(maxTerr),
             winnerName=players[winnerIdx].name;
@@ -482,17 +487,19 @@
       }
     }
 
+    // -- PING BLINK TIMER --
     setInterval(()=>{
-      pingToggle=!pingToggle;
+      pingToggle = !pingToggle;
       if(pings.length){
         pings.forEach(p=>p.blinkCount--);
         if(pings[0].blinkCount<=0) pings=[];
       }
       draw();
-    },500);
+    }, 500);
 
+    // -- MOUSE HANDLERS --
     let clickStart=null, hoverEnd=null;
-    canvas.addEventListener('mousemove',e=>{
+    canvas.addEventListener('mousemove', e=>{
       const r=canvas.getBoundingClientRect(),
             gx=px2g(e.clientX-r.left),
             gy=px2g(e.clientY-r.top);
@@ -508,39 +515,46 @@
         hoverInfoEl.textContent=`Hovered: (${gx},${gy})`;
       }
     });
-    canvas.addEventListener('mouseleave',()=>hoverInfoEl.textContent='');
+    canvas.addEventListener('mouseleave', ()=> hoverInfoEl.textContent='');
 
-    canvas.addEventListener('click',async e=>{
+    canvas.addEventListener('click', async e=>{
       const r=canvas.getBoundingClientRect(),
             gx=px2g(e.clientX-r.left),
             gy=px2g(e.clientY-r.top);
+
+      // Ping mode
       if(pingMode){
-        pings=[{x:gx,y:gy,w:1,h:1,blinkCount:4}];
+        pings = [{ x:gx, y:gy, w:1, h:1, blinkCount:4 }];
         pingMode=false; draw(); return;
       }
-      if((mode!=='local'&&!started)||gameOver){
-        debugEl.textContent=gameOver?'Game over.':'Not started yet.';
+
+      // Not started or game over
+      if((mode!=='local' && !started) || gameOver){
+        debugEl.textContent = gameOver ? 'Game over.' : 'Not started yet.';
         return;
       }
-      if(mode!=='local'&&turnIndex!==myIndex){
+      if(mode!=='local' && turnIndex!==myIndex){
         debugEl.textContent='Not your turn.'; clickStart=null; return;
       }
+
+      // Place line
       if(!clickStart){
         clickStart={x:gx,y:gy}; return;
       }
       const sx=clickStart.x, sy=clickStart.y, ex=gx, ey=gy;
       clickStart=null; debugEl.textContent='';
+
       if(!isStraight3(sx,sy,ex,ey))             debugEl.textContent='Line must be straight & length 3.';
       else if(!isConnected(sx,sy,ex,ey))        debugEl.textContent='Must touch existing point.';
-      else if(!noNodeReuse(sx,sy,ex,ey))        debugEl.textContent='Cannot cross interior.';
-      else if(!noTerritory(sx,sy,ex,ey))        debugEl.textContent='Cannot go through territory.';
+      else if(!noNodeReuse(sx,sy,ex,ey))        debugEl.textContent='Cannot cross existing line interior.';
+      else if(!noTerritory(sx,sy,ex,ey))        debugEl.textContent='Cannot go through occupied territory.';
       else if(!noMutualEndpointMidViolation(sx,sy,ex,ey))
-                                                debugEl.textContent='Illegal mutual endpoint↔midpoint.';
+                                                debugEl.textContent='Illegal mutual endpoint↔midpoint cross.';
       else {
         if(mode!=='local'){
-          const newLines=[...lines,{sx,sy,ex,ey,playerIndex:turnIndex}];
+          const newLines=[...(lines||[]),{sx,sy,ex,ey,playerIndex:turnIndex}];
           const next=(turnIndex+1)%players.length;
-          await gameRef.update({
+          gameRef.update({
             lines:newLines,
             turnIndex: next,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
@@ -554,10 +568,11 @@
       }
     });
 
+    // -- CHAT SEND --
     chatSendBtn.onclick=()=>{
       const text=chatInput.value.trim(); if(!text) return;
       const now=firebase.firestore.Timestamp.now();
-      const msg={senderId:clientId,senderName:players[myIndex].name,text,timestamp:now};
+      const msg={ senderId:clientId, senderName:players[myIndex].name, text, timestamp:now };
       gameRef.update({
         chat: firebase.firestore.FieldValue.arrayUnion(msg),
         lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
@@ -565,16 +580,17 @@
       chatInput.value='';
     };
 
+    // -- PING BUTTON --
     pingBtn.onclick=()=>{
       pingMode=true;
       debugEl.textContent='Click a cell to ping';
     };
 
+    // -- RESTART BUTTON --
     restartBtn.onclick=async()=>{
       if(mode==='local'){
         lines=[]; turnIndex=0; initializeGame(); draw();
-        updateInfo(); updateScoreboard(); updatePossibleMoves();
-        gameOver=false;
+        updateInfo(); updateScoreboard(); updatePossibleMoves(); gameOver=false;
       } else {
         const newId=Math.random().toString(36).substr(2,9);
         history.replaceState(null,'','?game='+newId);
@@ -587,12 +603,14 @@
         });
         gameRef=db.collection('games').doc(newId);
         gameOver=false;
-        gameRef.onSnapshot(doc=>handleSnapshot(doc.data()));
+        gameRef.onSnapshot(handleSnapshot, err=>console.error('Snapshot error:', err));
       }
     };
 
+    // -- START BUTTON --
     startBtn.onclick=async()=>{
-      mode = (document.querySelector('input[name=mode]:checked')||{}).value||'local';
+      const sel = document.querySelector('input[name=mode]:checked');
+      mode = sel?sel.value:'local';
       const dim=parseInt(gridSizeSelect.value,10);
       if(mode!=='join'){
         gridSize=dim+1;
@@ -615,13 +633,14 @@
       }
       maxPlayers=+playerCountIn.value;
       const gid=mode==='host'
-        ?(() => {const id=Math.random().toString(36).substr(2,9);
-                 history.replaceState(null,'','?game='+id); return id;})()
-        :joinGameId.value.trim();
+        ?(() => { const id=Math.random().toString(36).substr(2,9);
+                  history.replaceState(null,'','?game='+id); return id; })()
+        :$('joinGameId').value.trim();
       if(mode==='join'&&!gid) return alert('Enter Game ID');
       setupOverlay.style.display='none'; lobbyOverlay.style.display='flex';
       lobbyGameIdEl.textContent=gid; maxPlayersEl.textContent=maxPlayers;
       gameRef=db.collection('games').doc(gid);
+
       if(mode==='host'){
         players=[{id:clientId,name:'Player 1',color:DEFAULT_COLORS[0],ready:false}];
         await gameRef.set({
@@ -631,7 +650,7 @@
           timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
       } else {
-        const snap=await gameRef.get();
+        const snap = await gameRef.get();
         if(!snap.exists) return alert('Game not found');
         const data=snap.data();
         if(data.players.length>=data.maxPlayers) return alert('Game is full');
@@ -639,22 +658,29 @@
         players.push({
           id:clientId,
           name:`Player ${players.length+1}`,
-          color:DEFAULT_COLORS[players.length%DEFAULT_COLORS.length],
+          color: DEFAULT_COLORS[players.length%DEFAULT_COLORS.length],
           ready:false
         });
         await gameRef.update({players});
       }
-      gameRef.onSnapshot(doc=>handleSnapshot(doc.data()));
+      gameRef.onSnapshot(handleSnapshot, err=>console.error('Snapshot error:', err));
     };
 
+    // -- SNAPSHOT HANDLER --
     function handleSnapshot(data){
-      players=data.players; lines=data.lines; chatArr=data.chat;
-      turnIndex=data.turnIndex; maxPlayers=data.maxPlayers; started=data.started;
+      players   =data.players;
+      lines     =data.lines;
+      chatArr   =data.chat;
+      turnIndex =data.turnIndex;
+      maxPlayers=data.maxPlayers;
+      started   =data.started;
+
       if(!started){
         joinedCountEl.textContent=players.length;
         lobbyList.innerHTML='';
         players.forEach(p=>{
-          const div=document.createElement('div'), sw=document.createElement('span');
+          const div=document.createElement('div'),
+                sw=document.createElement('span');
           sw.style.cssText='display:inline-block;width:12px;height:12px;margin-right:5px;background:'+p.color;
           div.append(sw,p.name+(p.ready?' (Ready)':''));
           lobbyList.append(div);
@@ -685,18 +711,21 @@
       }
     }
 
+    // -- LOBBY CONTROLS --
     readyBtn.onclick      =()=>{ players[myIndex].ready=!players[myIndex].ready; gameRef.update({players}); };
     hostStartBtn.onclick  =()=>gameRef.update({started:true,timestamp:firebase.firestore.FieldValue.serverTimestamp()});
     myNameInput.onchange  =()=>{ players[myIndex].name=myNameInput.value; gameRef.update({players}); };
     myColorSelect.onchange=()=>{ players[myIndex].color=myColorSelect.value; gameRef.update({players}); };
 
+    // -- CHAT RENDER --
     function renderChat(){
       chatLog.innerHTML='';
-      chatArr.sort((a,b)=>(
-        (a.timestamp.seconds||a.timestamp) -
-        (b.timestamp.seconds||b.timestamp)
-      )).forEach(m=>{
-        const t=m.timestamp.seconds
+      (chatArr||[]).sort((a,b)=>{
+        const ta=a.timestamp.seconds||a.timestamp,
+              tb=b.timestamp.seconds||b.timestamp;
+        return ta-tb;
+      }).forEach(m=>{
+        const t = m.timestamp.seconds
           ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
           : new Date(m.timestamp).toLocaleTimeString();
         const div=document.createElement('div');
@@ -706,6 +735,7 @@
       chatLog.scrollTop=chatLog.scrollHeight;
     }
 
+    // -- LAST GAME RESULT --
     db.collection('gameResults')
       .orderBy('timestamp','desc')
       .limit(1)
