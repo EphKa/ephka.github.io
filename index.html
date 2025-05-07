@@ -475,46 +475,47 @@
               updateInfo();
               wrapper.style.display = 'flex';
               wrapper.classList.add('flex');
-      };
-       else {
-        maxPlayers = +playerCountIn.value;
-        const gid = mode==='host'
-          ? (()=>{ const id=Math.random().toString(36).substr(2,9);
-                   history.replaceState(null,'','?game='+id);
-                   return id; })()
-          : joinGameId.value.trim();
-        if(mode==='join'&&!gid) return alert('Enter Game ID');
-        setupOverlay.style.display='none';
-        lobbyOverlay.style.display='flex';
-        lobbyGameIdEl.textContent = gid;
-        maxPlayersEl.textContent  = maxPlayers;
-        gameRef = db.collection('games').doc(gid);
+              };
 
-        if(mode==='host'){
-          players=[{id:clientId,name:'Player 1',color:'#006400',ready:false}];
-          await gameRef.set({
-            maxPlayers, players, turnIndex:0,
-            lines:[], chat:[], started:false,
-            gridSizeDim:dim,
-            timestamp:firebase.firestore.FieldValue.serverTimestamp()
-          });
-        } else {
-          const snap = await gameRef.get();
-          if(!snap.exists) return alert('Game not found');
-          const data = snap.data();
-          if(data.players.length>=data.maxPlayers) return alert('Game is full');
-          players = data.players;
-          players.push({
-            id:clientId,
-            name:`Player ${players.length+1}`,
-            color:['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'][players.length],
-            ready:false
-          });
-          await gameRef.update({players});
-        }
-        gameRef.onSnapshot(doc=>handleSnapshot(doc.data()));
-      }
-    };
+          } else {
+            maxPlayers = +playerCountIn.value;
+            const gid = mode==='host'
+              ? (()=>{ const id=Math.random().toString(36).substr(2,9);
+                       history.replaceState(null,'','?game='+id);
+                       return id; })()
+              : joinGameId.value.trim();
+            if(mode==='join'&&!gid) return alert('Enter Game ID');
+            setupOverlay.style.display='none';
+            lobbyOverlay.style.display='flex';
+            lobbyGameIdEl.textContent = gid;
+            maxPlayersEl.textContent  = maxPlayers;
+            gameRef = db.collection('games').doc(gid);
+
+            if(mode==='host'){
+              players=[{id:clientId,name:'Player 1',color:'#006400',ready:false}];
+              await gameRef.set({
+                maxPlayers, players, turnIndex:0,
+                lines:[], chat:[], started:false,
+                gridSizeDim:dim,
+                timestamp:firebase.firestore.FieldValue.serverTimestamp()
+              });
+            } else {
+              const snap = await gameRef.get();
+              if(!snap.exists) return alert('Game not found');
+              const data = snap.data();
+              if(data.players.length>=data.maxPlayers) return alert('Game is full');
+              players = data.players;
+              players.push({
+                id:clientId,
+                name:`Player ${players.length+1}`,
+                color:['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'][players.length],
+                ready:false
+              });
+              await gameRef.update({players});
+            }
+            gameRef.onSnapshot(doc=>handleSnapshot(doc.data()));
+          }
+        };
 
     function handleSnapshot(data){
       players    = data.players;
