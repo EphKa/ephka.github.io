@@ -3,32 +3,25 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Grid Territory Multiplayer with Minimap Variations</title>
+  <title>Grid Territory Multiplayer with Minimap</title>
   <style>
     /* Center entire UI */
     body, html {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100%;
-      margin: 0;
-      font-family: sans-serif;
+      display: flex; justify-content: center; align-items: center;
+      height: 100%; margin: 0; font-family: sans-serif;
     }
 
     /* Overlays */
     #setupOverlay, #lobbyOverlay {
-      position: absolute;
-      top: 0; left: 0;
+      position: absolute; top: 0; left: 0;
       width: 100%; height: 100%;
       background: rgba(255,255,255,0.95);
       display: flex; align-items: center; justify-content: center;
       z-index: 10;
     }
     .dialog {
-      background: #fff;
-      padding: 20px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
+      background: #fff; padding: 20px;
+      border: 1px solid #ccc; border-radius: 4px;
       max-width: 400px; width: 100%;
     }
     .player-row { display: flex; align-items: center; margin-bottom: 8px; }
@@ -41,39 +34,25 @@
 
     /* Game container */
     #game-container {
-      border-right: 1px solid #ccc;
-      padding: 50px;
-      margin-right: 16px;
-      position: relative;
-      background: #fafafa;
+      border-right: 1px solid #ccc; padding: 50px;
+      margin-right: 16px; position: relative; background: #fafafa;
     }
-
-    /* Canvas styling */
     canvas { border: none !important; display: block; }
 
     /* Sidebar */
     #sidebar {
-      flex: 0 0 300px;
-      display: flex;
-      flex-direction: row;
-      justify-content: space-between;
-      align-items: center;
-      background: #fafafa;
-      padding: 8px;
+      flex: 0 0 300px; display: flex;
+      flex-direction: row; justify-content: space-between;
+      align-items: center; background: #fafafa; padding: 8px;
     }
     #scoreboard { width: 35%; text-align: center; }
     #chatSection {
-      display: flex;
-      flex-direction: column;
-      width: 60%;
+      display: flex; flex-direction: column; width: 60%;
     }
     #chatLog {
-      flex: 1;
-      overflow-y: auto;
-      border: 1px solid #ccc;
-      padding: 5px;
-      background: #fff;
-      min-height: 100px; max-height: 400px;
+      flex: 1; overflow-y: auto;
+      border: 1px solid #ccc; padding: 5px;
+      background: #fff; min-height: 100px; max-height: 400px;
     }
     #chatInput { width: 100%; padding: 4px; box-sizing: border-box; }
     #chatSendBtn { margin-top: 8px; }
@@ -85,17 +64,14 @@
 
     /* Minimap */
     #minimapContainer {
-      flex: 0 0 300px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      background: #eef;
-      padding: 8px;
+      flex: 0 0 300px; display: flex;
+      flex-direction: column; align-items: center;
+      background: #eef; padding: 8px;
     }
     #minimapContainer h4 { margin: 0 0 8px; }
     #minimapCanvas {
-      background: #333;
-      image-rendering: pixelated;
+      background: #333; image-rendering: pixelated;
+      width: 100%; height: auto;
     }
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
@@ -198,20 +174,37 @@
   </div>
 
   <script>
-    // Firebase init
-    const firebaseConfig = {
-      apiKey: "AIzaSyAlZwiFJYt73ZamlICtOSRUMOmEujPahTY",
-      authDomain: "territory-58483.firebaseapp.com",
-      projectId: "territory-58483",
-      storageBucket: "territory-58483.firebasestorage.app",
-      messagingSenderId: "848779508191",
-      appId: "1:848779508191:web:54af4953cb1ce7c8b5ac6a",
-      measurementId: "G-MH6R28JNMQ"
+    // Helper to load images and log status
+    function makeSprite(path) {
+      const img = new Image();
+      img.src = path;
+      img.onload  = () => console.log('[OK sprite]  ', path);
+      img.onerror = () => console.error('[FAIL sprite]', path);
+      return img;
+    }
+
+    // Map hex→name for building assets
+    const colorNameMap = {
+      '#006400': 'darkgreen',
+      '#ff0000': 'red',
+      '#ffd700': 'gold',
+      '#c71585': 'mediumvioletred',
+      '#00ff00': 'lime',
+      '#00ffff': 'aqua',
+      '#0000ff': 'blue',
+      '#1e90ff': 'dodgerblue'
     };
-    firebase.initializeApp(firebaseConfig);
-    firebase.auth().signInAnonymously()
-      .catch(err => console.error("Auth failed:", err));
-    const db = firebase.firestore();
+
+    // Preload minimap variant sprites
+    const grassSprites = ['grass1.png','grass2.png','grass3.png','grass4.png']
+      .map(fn => makeSprite(`assets/${fn}`));
+    const riverSprites = ['river1.png','river2.png','river3.png']
+      .map(fn => makeSprite(`assets/${fn}`));
+    const treeSprites  = ['tree1.png','tree2.png','tree3.png','tree4.png']
+      .map(fn => makeSprite(`assets/${fn}`));
+
+    // Will hold per-color building sprites
+    let buildingSprites = {};
 
     document.addEventListener('DOMContentLoaded', () => {
       const $ = id => document.getElementById(id);
@@ -251,33 +244,17 @@
             canvas             = $('gameCanvas'),
             ctx                = canvas.getContext('2d'),
             gameContainer      = $('game-container'),
-            scoreListEl        = $('scoreList');
+            scoreListEl        = $('scoreList'),
+            minimapCanvas      = $('minimapCanvas'),
+            ctxMini            = minimapCanvas.getContext('2d');
 
-      // --- ASSET VARIANTS ---
-      const grassSprites = [], riverSprites = [], treeSprites = [], buildingSprites = {};
-      // load grass variants
-      ['grass1.png','grass2.png','grass3.png','grass4.png'].forEach(fn => {
-        const img = new Image(); img.src = `assets/${fn}`; grassSprites.push(img);
-      });
-      // load river variants
-      ['river1.png','river2.png','river3.png'].forEach(fn => {
-        const img = new Image(); img.src = `assets/${fn}`; riverSprites.push(img);
-      });
-      // load tree variants
-      ['tree1.png','tree2.png','tree3.png','tree4.png'].forEach(fn => {
-        const img = new Image(); img.src = `assets/${fn}`; treeSprites.push(img);
-      });
-
-      // --- MINIMAP SETUP ---
-      const minimapCanvas = $('minimapCanvas');
-      const ctxMini       = minimapCanvas.getContext('2d');
-      const isoTileW = 16, isoTileH = 8;
+      // Minimap settings
+      const isoTileW = 48, isoTileH = 24;
       let miniOffsetX, miniOffsetY;
       let backgroundMap = [], treePositions = [];
 
       function initMinimap() {
         const cols = gridSize - 1, rows = gridSize - 1;
-        // size canvas to fit isometric map
         const w = (cols + rows) * isoTileW / 2;
         const h = (cols + rows) * isoTileH / 2 + isoTileH;
         minimapCanvas.width  = w;
@@ -285,41 +262,39 @@
         miniOffsetX = w / 2;
         miniOffsetY = 10;
 
-        // build background variations
-        backgroundMap = Array.from({ length: rows }, () => Array(cols).fill(null));
+        // build background
+        backgroundMap = Array.from({ length: rows }, () => Array(cols));
         for (let y = 0; y < rows; y++) {
           for (let x = 0; x < cols; x++) {
             if (Math.random() < 0.10) {
-              // river: 10% chance
-              const idx = Math.floor(Math.random() * riverSprites.length);
-              backgroundMap[y][x] = { type: 'river', idx };
+              backgroundMap[y][x] = {
+                type: 'river',
+                idx: Math.floor(Math.random() * riverSprites.length)
+              };
             } else {
-              // grass otherwise
-              const idx = Math.floor(Math.random() * grassSprites.length);
-              backgroundMap[y][x] = { type: 'grass', idx };
+              backgroundMap[y][x] = {
+                type: 'grass',
+                idx: Math.floor(Math.random() * grassSprites.length)
+              };
             }
           }
         }
 
-        // build tree positions on grass tiles
+        // scatter trees
         treePositions = [];
-        backgroundMap.forEach((row,y) => {
-          row.forEach((cell, x) => {
-            if (cell.type === 'grass' && Math.random() < 0.05) {
-              const idx = Math.floor(Math.random() * treeSprites.length);
-              treePositions.push({ x, y, idx });
+        for (let y = 0; y < rows; y++) {
+          for (let x = 0; x < cols; x++) {
+            if (
+              backgroundMap[y][x].type === 'grass' &&
+              Math.random() < 0.05
+            ) {
+              treePositions.push({
+                x, y,
+                idx: Math.floor(Math.random() * treeSprites.length)
+              });
             }
-          });
-        });
-
-        // build per-player building sprites
-        players.forEach(p => {
-          const key = p.color;
-          const colorKey = key.replace('#','');
-          const img = new Image();
-          img.src = `assets/building_${colorKey}.png`;
-          buildingSprites[key] = img;
-        });
+          }
+        }
       }
 
       function toIso(x, y) {
@@ -331,51 +306,43 @@
       function drawMinimap() {
         ctxMini.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
-        // 1) background
-        backgroundMap.forEach((row,y) => {
-          row.forEach((cell,x) => {
+        // background
+        for (let y = 0; y < backgroundMap.length; y++) {
+          for (let x = 0; x < backgroundMap[0].length; x++) {
+            const cell = backgroundMap[y][x];
             const { px, py } = toIso(x, y);
-            const img = (cell.type === 'river'
-                         ? riverSprites[cell.idx]
-                         : grassSprites[cell.idx]);
+            const img = cell.type === 'river'
+                        ? riverSprites[cell.idx]
+                        : grassSprites[cell.idx];
             ctxMini.drawImage(img, px - isoTileW/2, py - isoTileH/2, isoTileW, isoTileH);
-          });
-        });
+          }
+        }
 
-        // 2) trees
+        // trees
         treePositions.forEach(({x,y,idx}) => {
           const { px, py } = toIso(x, y);
-          const img = treeSprites[idx];
-          ctxMini.drawImage(img, px - isoTileW/2, py - isoTileH, isoTileW, isoTileH);
+          ctxMini.drawImage(treeSprites[idx], px - isoTileW/2, py - isoTileH, isoTileW, isoTileH);
         });
 
-        // 3) buildings
-        cells.forEach((row, y) => {
-          row.forEach((owner, x) => {
+        // buildings
+        for (let y = 0; y < cells.length; y++) {
+          for (let x = 0; x < cells[0].length; x++) {
+            const owner = cells[y][x];
             if (owner > 0) {
               const color = players[owner-1].color;
-              const img   = buildingSprites[color];
-
+              const img = buildingSprites[color];
               if (!img) {
-                console.error("[Minimap] No sprite found for color:", color);
-                return;  // skip drawing this one
+                console.error('[Minimap] No sprite for color', color);
+                continue;
               }
-              if (!(img instanceof HTMLImageElement)) {
-                console.error("[Minimap] Sprite is not an image element:", img);
-                return;
-              }
-
               const { px, py } = toIso(x, y);
-              ctxMini.drawImage(img,
-                                px - isoTileW/2,
-                                py - isoTileH,
-                                isoTileW, isoTileH);
+              ctxMini.drawImage(img, px - isoTileW/2, py - isoTileH, isoTileW, isoTileH);
             }
-          });
-        });
+          }
+        }
       }
 
-      // --- CORE GAME LOGIC (unchanged except for draw()) ---
+      // Core game logic
       const DEFAULT_COLORS = ['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'];
       let mode, gridSize, maxPlayers, myIndex = -1, gameRef, started = false;
       let players = [], lines = [], chatArr = [], turnIndex = 0, pings = [];
@@ -384,17 +351,11 @@
       let pingMode = false, pingToggle = true, gameOver = false;
 
       function px2g(rawPx) {
-        return Math.max(0, Math.min(
-          gridSize - 1,
-          Math.round(rawPx / cellPx)
-        ));
+        return Math.max(0, Math.min(gridSize - 1, Math.round(rawPx / cellPx)));
       }
       function g2px(g) { return g * cellPx; }
-
       function makeEmptyCells() {
-        return Array.from({ length: gridSize - 1 },
-          () => Array(gridSize - 1).fill(0)
-        );
+        return Array.from({ length: gridSize - 1 }, () => Array(gridSize - 1).fill(0));
       }
       function initializeGame() {
         endpoints = Array.from({ length: gridSize }, () => Array(gridSize).fill(false));
@@ -403,120 +364,110 @@
         vert      = Array.from({ length: gridSize - 1 }, () => Array(gridSize).fill(false));
         cells     = makeEmptyCells();
       }
-
-      function canPass(x, y, nx, ny) {
-        if (x === nx) return !horiz[Math.min(y, ny) + 1][x];
-        return !vert[y][Math.min(x, nx) + 1];
+      function canPass(x,y,nx,ny) {
+        if (x===nx) return !horiz[Math.min(y,ny)+1][x];
+        return !vert[y][Math.min(x,nx)+1];
       }
       function fillTerritories(pl) {
         const rows = gridSize - 1, cols = gridSize - 1;
         const vis = Array.from({ length: rows }, () => Array(cols).fill(false));
-        for (let y = 0; y < rows; y++) {
-          for (let x = 0; x < cols; x++) {
-            if (vis[y][x] || cells[y][x] !== 0) continue;
-            let queue = [{ x, y }], region = [], escapes = false;
-            vis[y][x] = true;
-            while (queue.length) {
-              const { x: cx, y: cy } = queue.shift();
-              region.push({ x: cx, y: cy });
-              if (cx === 0      && !vert[cy][0])     escapes = true;
-              if (cx === cols-1 && !vert[cy][cols])  escapes = true;
-              if (cy === 0      && !horiz[0][cx])    escapes = true;
-              if (cy === rows-1 && !horiz[rows][cx]) escapes = true;
+        for (let y=0; y<rows; y++) {
+          for (let x=0; x<cols; x++) {
+            if (vis[y][x]||cells[y][x]!==0) continue;
+            let queue=[{x,y}],region=[],esc=false;
+            vis[y][x]=true;
+            while(queue.length){
+              const {x:cx,y:cy}=queue.shift();
+              region.push({x:cx,y:cy});
+              if ((cx===0      && !vert[cy][0]) ||
+                  (cx===cols-1 && !vert[cy][cols]) ||
+                  (cy===0      && !horiz[0][cx]) ||
+                  (cy===rows-1 && !horiz[rows][cx])) {
+                esc=true;
+              }
               [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
-                const nx = cx + dx, ny = cy + dy;
-                if (nx>=0&&nx<cols&&ny>=0&&ny<rows &&
-                    !vis[ny][nx] && canPass(cx,cy,nx,ny)) {
-                  vis[ny][nx] = true;
-                  queue.push({ x: nx, y: ny });
+                const nx=cx+dx, ny=cy+dy;
+                if (nx>=0&&nx<cols&&ny>=0&&ny<rows&&
+                    !vis[ny][nx]&&canPass(cx,cy,nx,ny)) {
+                  vis[ny][nx]=true;
+                  queue.push({x:nx,y:ny});
                 }
               });
             }
-            if (!escapes) {
-              region.forEach(pt => cells[pt.y][pt.x] = pl + 1);
-            }
+            if (!esc) region.forEach(pt=>cells[pt.y][pt.x]=pl+1);
           }
         }
       }
-      function occupy(sx, sy, ex, ey, p) {
-        if (sx === ex) {
-          const y0 = Math.min(sy, ey);
-          for (let d = 0; d < 3; d++) vert[y0 + d][sx] = true;
+      function occupy(sx,sy,ex,ey,p) {
+        if (sx===ex) {
+          const y0=Math.min(sy,ey);
+          for(let d=0;d<3;d++) vert[y0+d][sx]=true;
         } else {
-          const x0 = Math.min(sx, ex);
-          for (let d = 0; d < 3; d++) horiz[sy][x0 + d] = true;
+          const x0=Math.min(sx,ex);
+          for(let d=0;d<3;d++) horiz[sy][x0+d]=true;
         }
-        endpoints[sy][sx] = true;
-        endpoints[ey][ex] = true;
-        const midsNew = [
-          { x: sx + (ex - sx)/3,   y: sy + (ey - sy)/3 },
-          { x: sx + 2*(ex - sx)/3, y: sy + 2*(ey - sy)/3 }
+        endpoints[sy][sx]=true;
+        endpoints[ey][ex]=true;
+        const midsNew=[
+          {x:sx+(ex-sx)/3,   y:sy+(ey-sy)/3},
+          {x:sx+2*(ex-sx)/3, y:sy+2*(ey-sy)/3}
         ];
-        midsNew.forEach(m => mids[m.y][m.x] = true);
+        midsNew.forEach(m=>mids[m.y][m.x]=true);
         fillTerritories(p);
       }
-
-      function isStraight3(sx, sy, ex, ey) {
-        const dx = Math.abs(ex - sx), dy = Math.abs(ey - sy);
-        return (dx === 3 && dy === 0) || (dx === 0 && dy === 3);
+      function isStraight3(sx,sy,ex,ey) {
+        const dx=Math.abs(ex-sx), dy=Math.abs(ey-sy);
+        return (dx===3&&dy===0)||(dx===0&&dy===3);
       }
-      function isConnected(sx, sy, ex, ey) {
+      function isConnected(sx,sy,ex,ey) {
         if (!lines.length) return true;
-        const pts = [
-          { x: sx, y: sy }, { x: ex, y: ey },
-          { x: sx + (ex-sx)/3,   y: sy + (ey-sy)/3 },
-          { x: sx + 2*(ex-sx)/3, y: sy + 2*(ey-sy)/3 }
+        const pts=[
+          {x:sx,y:sy},{x:ex,y:ey},
+          {x:sx+(ex-sx)/3,y:sy+(ey-sy)/3},
+          {x:sx+2*(ex-sx)/3,y:sy+2*(ey-sy)/3}
         ];
-        return pts.some(pt =>
-          endpoints[pt.y][pt.x] || mids[pt.y][pt.x]
-        );
+        return pts.some(pt=>endpoints[pt.y][pt.x]||mids[pt.y][pt.x]);
       }
-      function noNodeReuse(sx, sy, ex, ey) {
-        const midsNew = [
-          { x: sx + (ex-sx)/3,   y: sy + (ey-sy)/3 },
-          { x: sx + 2*(ex-sx)/3, y: sy + 2*(ey-sy)/3 }
+      function noNodeReuse(sx,sy,ex,ey) {
+        const midsNew=[
+          {x:sx+(ex-sx)/3,y:sy+(ey-sy)/3},
+          {x:sx+2*(ex-sx)/3,y:sy+2*(ey-sy)/3}
         ];
-        return midsNew.every(m => !mids[m.y][m.x]);
+        return midsNew.every(m=>!mids[m.y][m.x]);
       }
-      function noTerritory(sx, sy, ex, ey) {
+      function noTerritory(sx,sy,ex,ey) {
         if (sx===ex) {
-          const y0 = Math.min(sy,ey);
-          for (let d=0; d<3; d++){
-            const y = y0+d;
-            if ((sx-1>=0      && cells[y][sx-1]!==0) ||
-                (sx<gridSize-1&& cells[y][sx]  !==0))
+          const y0=Math.min(sy,ey);
+          for(let d=0;d<3;d++){
+            const y=y0+d;
+            if ((sx-1>=0&&cells[y][sx-1]!==0)||(sx<gridSize-1&&cells[y][sx]!==0))
               return false;
           }
         } else {
-          const x0 = Math.min(sx,ex);
-          for (let d=0; d<3; d++){
-            const x = x0+d;
-            if ((sy-1>=0      && cells[sy-1][x]!==0) ||
-                (sy<gridSize-1&& cells[sy][x]  !==0))
+          const x0=Math.min(sx,ex);
+          for(let d=0;d<3;d++){
+            const x=x0+d;
+            if ((sy-1>=0&&cells[sy-1][x]!==0)||(sy<gridSize-1&&cells[sy][x]!==0))
               return false;
           }
         }
         return true;
       }
-      function noMutualEndpointMidViolation(sx, sy, ex, ey) {
-        const midsNew = [
-          { x: sx + (ex-sx)/3,   y: sy + (ey-sy)/3 },
-          { x: sx + 2*(ex-sx)/3, y: sy + 2*(ey-sy)/3 }
+      function noMutualEndpointMidViolation(sx,sy,ex,ey) {
+        const midsNew=[
+          {x:sx+(ex-sx)/3,y:sy+(ey-sy)/3},
+          {x:sx+2*(ex-sx)/3,y:sy+2*(ey-sy)/3}
         ];
-        const endsNew = [{x:sx,y:sy},{x:ex,y:ey}];
-        for (const ln of lines) {
-          const midsOld = [
-            { x: ln.sx + (ln.ex-ln.sx)/3,   y: ln.sy + (ln.ey-ln.sy)/3 },
-            { x: ln.sx + 2*(ln.ex-ln.sx)/3, y: ln.sy + 2*(ln.ey-ln.sy)/3 }
+        const endsNew=[{x:sx,y:sy},{x:ex,y:ey}];
+        for(const ln of lines){
+          const midsOld=[
+            {x:ln.sx+(ln.ex-ln.sx)/3,y:ln.sy+(ln.ey-ln.sy)/3},
+            {x:ln.sx+2*(ln.ex-ln.sx)/3,y:ln.sy+2*(ln.ey-ln.sy)/3}
           ];
-          const endsOld = [{x:ln.sx,y:ln.sy},{x:ln.ex,y:ln.ey}];
-          const epOnOldMid = endsNew.some(eN =>
-            midsOld.some(mO => eN.x===mO.x && eN.y===mO.y)
-          );
-          const oldEpOnNewMid = endsOld.some(eO =>
-            midsNew.some(mN => eO.x===mN.x && eO.y===mN.y)
-          );
-          if (epOnOldMid && oldEpOnNewMid) return false;
+          const endsOld=[{x:ln.sx,y:ln.sy},{x:ln.ex,y:ln.ey}];
+          const epOnOldMid=endsNew.some(eN=>midsOld.some(mO=>eN.x===mO.x&&eN.y===mO.y));
+          const oldEpOnNewMid=endsOld.some(eO=>midsNew.some(mN=>eO.x===mN.x&&eO.y===mN.y));
+          if(epOnOldMid&&oldEpOnNewMid) return false;
         }
         return true;
       }
@@ -524,38 +475,27 @@
       function draw() {
         ctx.clearRect(0,0,canvas.width,canvas.height);
         // grid
-        ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1;
-        for (let i=0; i<gridSize; i++) {
-          const p = g2px(i);
-          ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,canvas.height); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(canvas.width,p);   ctx.stroke();
+        ctx.strokeStyle='#ddd';ctx.lineWidth=1;
+        for(let i=0;i<gridSize;i++){
+          const p=g2px(i);
+          ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,canvas.height);ctx.stroke();
+          ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(canvas.width,p);ctx.stroke();
         }
         // territories
-        cells.forEach((row,y) =>
-          row.forEach((c,x) => {
-            if (c>0) {
-              ctx.globalAlpha = 0.2;
-              ctx.fillStyle = players[c-1].color;
-              ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);
-              ctx.globalAlpha = 1;
-            }
-          })
-        );
+        cells.forEach((row,y)=>row.forEach((c,x)=>{
+          if(c>0){ctx.globalAlpha=0.2;ctx.fillStyle=players[c-1].color;
+            ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);ctx.globalAlpha=1;}
+        }));
         // lines
-        lines.forEach((ln,i) => {
-          ctx.beginPath();
-          ctx.setLineDash([]); ctx.lineCap = 'round';
-          ctx.lineWidth = (i===lines.length-1 ? 6 : 4);
-          ctx.strokeStyle = players[ln.playerIndex].color;
+        lines.forEach((ln,i)=>{ctx.beginPath();ctx.setLineDash([]);ctx.lineCap='round';
+          ctx.lineWidth=(i===lines.length-1?6:4);
+          ctx.strokeStyle=players[ln.playerIndex].color;
           ctx.moveTo(g2px(ln.sx),g2px(ln.sy));
-          ctx.lineTo(g2px(ln.ex),g2px(ln.ey)); ctx.stroke();
+          ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();
         });
         // pings
-        if (pings.length && pingToggle) {
-          ctx.font = `${cellPx}px sans-serif`;
-          pings.forEach(r => {
-            ctx.fillText('⚠️', g2px(r.x), g2px(r.y+1));
-          });
+        if(pings.length&&pingToggle){ctx.font=`${cellPx}px sans-serif`;
+          pings.forEach(r=>ctx.fillText('⚠️',g2px(r.x),g2px(r.y+1)));
         }
         // minimap
         drawMinimap();
@@ -564,81 +504,72 @@
       // Score & info
       function updateScoreboard(cnts) {
         scoreListEl.innerHTML = '';
-        players.forEach((p,i) => {
-          const div = document.createElement('div');
-          div.innerHTML = `${p.name}: ${cnts[i]} <span style="color: ${p.color};">▩</span>`;
-          scoreListEl.append(div);
+        players.forEach((p,i)=>{
+          const d=document.createElement('div');
+          d.innerHTML = `${p.name}: ${cnts[i]} <span style="color:${p.color}">▩</span>`;
+          scoreListEl.append(d);
         });
       }
-      function updateInfo() {
-        const cnts = players.map(() => 0);
-        cells.forEach(row => row.forEach(c => { if (c>0) cnts[c-1]++; }));
-        infoEl.textContent = `Turn: ${players[turnIndex]?.name || ''}`;
+      function updateInfo(){
+        const cnts=players.map(()=>0);
+        cells.forEach(r=>r.forEach(c=>{if(c>0)cnts[c-1]++}));
+        infoEl.textContent=`Turn: ${players[turnIndex]?.name||''}`;
         updateScoreboard(cnts);
       }
-      function countPossibleMoves() {
-        let c = 0;
-        for (let y=0; y<gridSize; y++) {
-          for (let x=0; x<gridSize; x++) {
-            [[3,0],[-3,0],[0,3],[0,-3]].forEach(([dx,dy]) => {
-              const ex = x+dx, ey = y+dy;
-              if (ex<0||ex>=gridSize||ey<0||ey>=gridSize) return;
-              if (
-                isStraight3(x,y,ex,ey) &&
-                isConnected(x,y,ex,ey) &&
-                noNodeReuse(x,y,ex,ey) &&
-                noTerritory(x,y,ex,ey) &&
-                noMutualEndpointMidViolation(x,y,ex,ey)
-              ) c++;
+      function countPossibleMoves(){
+        let c=0;
+        for(let y=0;y<gridSize;y++){
+          for(let x=0;x<gridSize;x++){
+            [[3,0],[-3,0],[0,3],[0,-3]].forEach(([dx,dy])=>{
+              const ex=x+dx,ey=y+dy;
+              if(ex<0||ex>=gridSize||ey<0||ey>=gridSize)return;
+              if(isStraight3(x,y,ex,ey)&&isConnected(x,y,ex,ey)
+                &&noNodeReuse(x,y,ex,ey)&&noTerritory(x,y,ex,ey)
+                &&noMutualEndpointMidViolation(x,y,ex,ey)) c++;
             });
           }
         }
         return c;
       }
-      function updatePossibleMoves() {
-        const c = countPossibleMoves();
-        if (c===0 && !gameOver) endGame();
-      }
-      async function endGame() {
-        gameOver = true;
-        const cnts = players.map(() => 0);
-        cells.forEach(row => row.forEach(c => { if (c>0) cnts[c-1]++; }));
-        const winnerIdx = cnts.indexOf(Math.max(...cnts)),
-              winnerName = players[winnerIdx]?.name;
-        alert(`Game over! ${winnerName} wins with ${cnts[winnerIdx]} territories.`);
-        const winnerDiv = scoreListEl.children[winnerIdx];
-        if (winnerDiv) winnerDiv.textContent += ' 👑';
+      function updatePossibleMoves(){if(countPossibleMoves()===0&&!gameOver)endGame();}
+      async function endGame(){
+        gameOver=true;
+        const cnts=players.map(()=>0);
+        cells.forEach(r=>r.forEach(c=>{if(c>0)cnts[c-1]++}));
+        const wi=cnts.indexOf(Math.max(...cnts));
+        const wn=players[wi]?.name;
+        alert(`Game over! ${wn} wins with ${cnts[wi]} territories.`);
+        const wd=scoreListEl.children[wi];if(wd)wd.textContent+=' 👑';
       }
 
       // Blink pings
-      setInterval(() => {
-        pingToggle = !pingToggle;
-        if (pings.length) {
-          pings.forEach(p => p.blinkCount--);
-          if (pings[0].blinkCount <= 0) pings = [];
+      setInterval(()=>{
+        pingToggle=!pingToggle;
+        if(pings.length){
+          pings.forEach(p=>p.blinkCount--);
+          if(pings[0].blinkCount<=0) pings=[];
         }
         draw();
-      }, 500);
+      },500);
 
-      // Setup overlay UI
-      function updateConfig() {
-        const sel = document.querySelector('input[name=mode]:checked');
-        mode = sel?.value || 'local';
-        gridSizeConfig.style.display = mode==='join' ? 'none' : 'block';
-        localConfig.style.display    = mode==='local' ? 'block' : 'none';
-        hostConfig.style.display     = mode==='host'  ? 'block' : 'none';
-        joinConfig.style.display     = mode==='join'  ? 'block' : 'none';
+      // Setup overlay
+      function updateConfig(){
+        const sel=document.querySelector('input[name=mode]:checked');
+        mode=sel?.value||'local';
+        gridSizeConfig.style.display=mode==='join'?'none':'block';
+        localConfig.style.display=mode==='local'?'block':'none';
+        hostConfig.style.display=mode==='host'?'block':'none';
+        joinConfig.style.display=mode==='join'?'block':'none';
       }
-      modeRadios.forEach(r => r.addEventListener('change', updateConfig));
+      modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
       updateConfig();
 
-      function renderLocalPlayerConfig() {
-        const cnt = +localPlayerCountIn.value;
-        localPlayersConfig.innerHTML = '';
-        for (let i=1; i<=cnt; i++) {
-          const div = document.createElement('div');
-          div.className = 'player-row';
-          div.innerHTML = `
+      function renderLocalPlayerConfig(){
+        const cnt=+localPlayerCountIn.value;
+        localPlayersConfig.innerHTML='';
+        for(let i=1;i<=cnt;i++){
+          const div=document.createElement('div');div.className='player-row';
+          div.innerHTML=`
             <label>Name:
               <input type="text" class="localNameInput" data-idx="${i-1}" value="Player ${i}"/>
             </label>
@@ -653,167 +584,149 @@
         }
       }
       renderLocalPlayerConfig();
-      localPlayerCountIn.addEventListener('input', renderLocalPlayerConfig);
+      localPlayerCountIn.addEventListener('input',renderLocalPlayerConfig);
 
       // Lobby handlers
-      myNameInput.onchange = () => {
-        if (myIndex<0) return;
-        players[myIndex].name = myNameInput.value;
-        gameRef.update({ players });
+      myNameInput.onchange = ()=>{
+        if(myIndex<0) return;
+        players[myIndex].name=myNameInput.value;
+        gameRef.update({players});
       };
-      myColorSelect.onchange = () => {
-        if (myIndex<0) return;
-        players[myIndex].color = myColorSelect.value;
-        gameRef.update({ players });
+      myColorSelect.onchange = ()=>{
+        if(myIndex<0) return;
+        players[myIndex].color=myColorSelect.value;
+        gameRef.update({players});
       };
-      readyBtn.onclick = () => {
-        if (myIndex<0) return;
-        players[myIndex].ready = !players[myIndex].ready;
-        gameRef.update({ players });
+      readyBtn.onclick = ()=>{
+        if(myIndex<0) return;
+        players[myIndex].ready=!players[myIndex].ready;
+        gameRef.update({players});
       };
-      hostStartBtn.onclick = async () => {
+      hostStartBtn.onclick = async ()=>{
         await gameRef.update({
-          started: true,
-          timestamp: firebase.firestore.FieldValue.serverTimestamp()
+          started:true,
+          timestamp:firebase.firestore.FieldValue.serverTimestamp()
         });
       };
 
-      // Canvas mouse events
-      let clickStart = null;
-      canvas.addEventListener('mousemove', e => {
-        const r = canvas.getBoundingClientRect(),
-              gx = px2g(e.clientX - r.left),
-              gy = px2g(e.clientY - r.top);
-        if (clickStart) {
+      // Canvas events
+      let clickStart=null;
+      canvas.addEventListener('mousemove',e=>{
+        const r=canvas.getBoundingClientRect(),
+              gx=px2g(e.clientX-r.left),
+              gy=px2g(e.clientY-r.top);
+        if(clickStart){
           draw();
-          ctx.beginPath(); ctx.setLineDash([5,5]);
-          ctx.lineWidth = 2; ctx.strokeStyle = 'gray';
-          ctx.moveTo(g2px(clickStart.x), g2px(clickStart.y));
-          ctx.lineTo(g2px(gx), g2px(gy)); ctx.stroke();
+          ctx.beginPath();ctx.setLineDash([5,5]);
+          ctx.lineWidth=2;ctx.strokeStyle='gray';
+          ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));
+          ctx.lineTo(g2px(gx),g2px(gy));ctx.stroke();
           ctx.setLineDash([]);
         } else {
-          hoverInfoEl.textContent = `Hovered: (${gx},${gy})`;
+          hoverInfoEl.textContent=`Hovered: (${gx},${gy})`;
         }
       });
-      canvas.addEventListener('mouseleave', ()=> hoverInfoEl.textContent = '');
-
-      canvas.addEventListener('click', async e => {
-        const r = canvas.getBoundingClientRect(),
-              gx = px2g(e.clientX - r.left),
-              gy = px2g(e.clientY - r.top);
-
-        // Global ping
-        if (pingMode) {
-          const pingObj = { x: gx, y: gy, blinkCount: 4 };
-          if (mode!=='local') {
-            await gameRef.update({ pings: [pingObj] });
-            setTimeout(()=>gameRef.update({ pings: [] }), 2000);
+      canvas.addEventListener('mouseleave',()=>hoverInfoEl.textContent='');
+      canvas.addEventListener('click',async e=>{
+        const r=canvas.getBoundingClientRect(),
+              gx=px2g(e.clientX-r.left),
+              gy=px2g(e.clientY-r.top);
+        if(pingMode){
+          const pingObj={x:gx,y:gy,blinkCount:4};
+          if(mode!=='local'){
+            await gameRef.update({pings:[pingObj]});
+            setTimeout(()=>gameRef.update({pings:[]}),2000);
           }
-          pings = [pingObj];
-          pingMode = false;
-          debugEl.textContent = '';
-          draw();
+          pings=[pingObj]; pingMode=false; debugEl.textContent=''; draw();
           return;
         }
-
-        // Not started or over
-        if ((mode!=='local' && !started) || gameOver) {
-          debugEl.textContent = gameOver ? 'Game over.' : 'Not started yet.';
-          clickStart = null;
-          return;
+        if((mode!=='local'&&!started)||gameOver){
+          debugEl.textContent=gameOver?'Game over.':'Not started yet.';
+          clickStart=null; return;
         }
-        // Not your turn
-        if (mode!=='local' && turnIndex!==myIndex) {
-          debugEl.textContent = 'Not your turn.';
-          clickStart = null;
-          return;
+        if(mode!=='local'&&turnIndex!==myIndex){
+          debugEl.textContent='Not your turn.'; clickStart=null; return;
         }
-
-        // Line placement
-        if (!clickStart) {
-          clickStart = { x: gx, y: gy };
-          return;
-        }
-        const sx = clickStart.x, sy = clickStart.y;
-        clickStart = null; debugEl.textContent = '';
-        const ex = gx, ey = gy;
-
-        if (!isStraight3(sx,sy,ex,ey))              debugEl.textContent = 'Line must be straight & length 3.';
-        else if (!isConnected(sx,sy,ex,ey))          debugEl.textContent = 'Must touch existing point.';
-        else if (!noNodeReuse(sx,sy,ex,ey))          debugEl.textContent = 'Cannot cross interior.';
-        else if (!noTerritory(sx,sy,ex,ey))          debugEl.textContent = 'Cannot go through territory.';
-        else if (!noMutualEndpointMidViolation(sx,sy,ex,ey))
-                                                    debugEl.textContent = 'Illegal endpoint↔midpoint cross.';
+        if(!clickStart){ clickStart={x:gx,y:gy}; return }
+        const sx=clickStart.x, sy=clickStart.y;
+        clickStart=null; debugEl.textContent='';
+        const ex=gx, ey=gy;
+        if(!isStraight3(sx,sy,ex,ey))              debugEl.textContent='Line must be straight & length 3.';
+        else if(!isConnected(sx,sy,ex,ey))          debugEl.textContent='Must touch existing point.';
+        else if(!noNodeReuse(sx,sy,ex,ey))          debugEl.textContent='Cannot cross interior.';
+        else if(!noTerritory(sx,sy,ex,ey))          debugEl.textContent='Cannot go through territory.';
+        else if(!noMutualEndpointMidViolation(sx,sy,ex,ey))
+                                                    debugEl.textContent='Illegal endpoint↔midpoint cross.';
         else {
-          if (mode!=='local') {
-            const newLines = [...lines, { sx,sy,ex,ey,playerIndex:turnIndex }];
-            const next = (turnIndex + 1) % players.length;
+          if(mode!=='local'){
+            const newLines=[...lines,{sx,sy,ex,ey,playerIndex:turnIndex}];
+            const next=(turnIndex+1)%players.length;
             await gameRef.update({
-              lines: newLines,
-              turnIndex: next,
-              lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+              lines:newLines,
+              turnIndex:next,
+              lastUpdate:firebase.firestore.FieldValue.serverTimestamp()
             });
           } else {
-            lines.push({ sx,sy,ex,ey,playerIndex:turnIndex });
+            lines.push({sx,sy,ex,ey,playerIndex:turnIndex});
             occupy(sx,sy,ex,ey,turnIndex);
-            turnIndex = (turnIndex + 1) % players.length;
+            turnIndex=(turnIndex+1)%players.length;
             draw(); updateInfo(); updatePossibleMoves();
           }
         }
       });
 
       // Chat
-      chatSendBtn.onclick = () => {
-        const text = chatInput.value.trim(); if (!text) return;
-        const msg = {
-          senderId: clientId,
-          senderName: players[myIndex]?.name,
+      chatSendBtn.onclick = ()=>{
+        const text=chatInput.value.trim(); if(!text) return;
+        const msg={
+          senderId:clientId,
+          senderName:players[myIndex]?.name,
           text,
-          timestamp: firebase.firestore.Timestamp.now()
+          timestamp:firebase.firestore.Timestamp.now()
         };
         gameRef.update({
-          chat: firebase.firestore.FieldValue.arrayUnion(msg),
-          lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+          chat:firebase.firestore.FieldValue.arrayUnion(msg),
+          lastUpdate:firebase.firestore.FieldValue.serverTimestamp()
         });
-        chatInput.value = '';
+        chatInput.value='';
       };
-      function renderChat() {
-        chatLog.innerHTML = '';
+      function renderChat(){
+        chatLog.innerHTML='';
         chatArr.slice().sort((a,b)=>{
-          const ta = a.timestamp.seconds||a.timestamp,
-                tb = b.timestamp.seconds||b.timestamp;
-          return ta - tb;
+          const ta=a.timestamp.seconds||a.timestamp,
+                tb=b.timestamp.seconds||b.timestamp;
+          return ta-tb;
         }).forEach(m=>{
-          const time = m.timestamp.seconds
+          const time=m.timestamp.seconds
             ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
             : new Date(m.timestamp).toLocaleTimeString();
-          const div = document.createElement('div');
-          div.innerHTML = `<strong>${m.senderName}</strong> [${time}]: ${m.text}`;
-          chatLog.append(div);
+          const d=document.createElement('div');
+          d.innerHTML=`<strong>${m.senderName}</strong> [${time}]: ${m.text}`;
+          chatLog.append(d);
         });
-        chatLog.scrollTop = chatLog.scrollHeight;
+        chatLog.scrollTop=chatLog.scrollHeight;
       }
 
       // Ping button
-      pingBtn.onclick = ()=>{
-        pingMode = true;
-        debugEl.textContent = 'Click a cell to ping';
+      pingBtn.onclick=()=>{
+        pingMode=true;
+        debugEl.textContent='Click a cell to ping';
       };
 
       // Restart
-      restartBtn.onclick = async ()=>{
-        if (mode==='local') {
+      restartBtn.onclick=async ()=>{
+        if(mode==='local'){
           lines=[]; turnIndex=0; initializeGame(); draw();
           updateInfo(); updatePossibleMoves(); gameOver=false;
         } else {
-          const newId = Math.random().toString(36).substr(2,9);
+          const newId=Math.random().toString(36).substr(2,9);
           history.replaceState(null,'','?game='+newId);
-          const dim = parseInt(gridSizeSelect.value,10);
+          const dim=parseInt(gridSizeSelect.value,10);
           await db.collection('games').doc(newId).set({
             maxPlayers, players, turnIndex:0,
             lines:[], chat:[], started:true,
             gridSizeDim: dim,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            timestamp:firebase.firestore.FieldValue.serverTimestamp(),
             pings:[]
           });
           gameRef = db.collection('games').doc(newId);
@@ -823,27 +736,27 @@
       };
 
       // Start/Join
-      startBtn.onclick = async ()=>{
-        const sel = document.querySelector('input[name=mode]:checked');
-        mode = sel?.value || 'local';
-        const dim = parseInt(gridSizeSelect.value,10);
+      startBtn.onclick=async ()=>{
+        const sel=document.querySelector('input[name=mode]:checked');
+        mode=sel?.value||'local';
+        const dim=parseInt(gridSizeSelect.value,10);
 
-        if (mode!=='join') {
-          gridSize = dim + 1;
-          canvas.width = canvas.height = cellPx * dim;
-          gameContainer.style.width  = canvas.width + 'px';
-          gameContainer.style.height = canvas.height + 'px';
+        if(mode!=='join'){
+          gridSize=dim+1;
+          canvas.width=canvas.height=cellPx*dim;
+          gameContainer.style.width=canvas.width+'px';
+          gameContainer.style.height=canvas.height+'px';
           initMinimap();
         }
 
-        if (mode==='local') {
-          maxPlayers = +localPlayerCountIn.value; players=[];
+        if(mode==='local'){
+          maxPlayers=+localPlayerCountIn.value; players=[];
           document.querySelectorAll('.localNameInput').forEach(el=>{
-            const idx = +el.dataset.idx;
+            const idx=+el.dataset.idx;
             players.push({
               id:null,
-              name: el.value||`Player ${idx+1}`,
-              color: document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value,
+              name:el.value||`Player ${idx+1}`,
+              color:document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value,
               ready:true
             });
           });
@@ -853,42 +766,42 @@
           return;
         }
 
-        maxPlayers = +hostPlayerCountIn.value;
-        const gid = mode==='host'
-          ? (()=>{ const id = Math.random().toString(36).substr(2,9);
-                   history.replaceState(null,'','?game='+id);
-                   return id; })()
-          : $('joinGameId').value.trim();
-        if (mode==='join' && !gid) return alert('Enter Game ID');
+        maxPlayers=+hostPlayerCountIn.value;
+        const gid=mode==='host'
+          ?(() => { const id=Math.random().toString(36).substr(2,9);
+                    history.replaceState(null,'','?game='+id);
+                    return id; })()
+          :$('joinGameId').value.trim();
+        if(mode==='join'&&!gid) return alert('Enter Game ID');
 
         setupOverlay.style.display='none';
         lobbyOverlay.style.display='flex';
         lobbyGameIdEl.textContent=gid;
         maxPlayersEl.textContent=maxPlayers;
-        gameRef = db.collection('games').doc(gid);
+        gameRef=db.collection('games').doc(gid);
 
-        if (mode==='host') {
+        if(mode==='host'){
           players=[{id:clientId,name:'Player 1',color:DEFAULT_COLORS[0],ready:false}];
           await gameRef.set({
             maxPlayers, players, turnIndex:0,
             lines:[], chat:[], started:false,
             gridSizeDim: dim,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            timestamp:firebase.firestore.FieldValue.serverTimestamp(),
             pings:[]
           });
         } else {
-          const snap = await gameRef.get();
-          if (!snap.exists) return alert('Game not found');
-          const data = snap.data();
-          if (data.players.length >= data.maxPlayers) return alert('Game is full');
-          players = data.players;
+          const snap=await gameRef.get();
+          if(!snap.exists) return alert('Game not found');
+          const data=snap.data();
+          if(data.players.length>=data.maxPlayers) return alert('Game is full');
+          players=data.players;
           players.push({
             id:clientId,
             name:`Player ${players.length+1}`,
             color:DEFAULT_COLORS[players.length%DEFAULT_COLORS.length],
             ready:false
           });
-          await gameRef.update({ players });
+          await gameRef.update({players});
         }
 
         gameRef.onSnapshot(doc=>handleSnapshot(doc.data()||{}));
@@ -904,38 +817,44 @@
         started    = typeof data.started==='boolean'  ? data.started    : started;
         pings      = Array.isArray(data.pings)        ? data.pings      : pings;
 
-        if (!started) {
-          // Lobby
-          joinedCountEl.textContent = players.length;
-          lobbyList.innerHTML = '';
+        if(!started) {
+          // Lobby UI
+          joinedCountEl.textContent=players.length;
+          lobbyList.innerHTML='';
           players.forEach(p=>{
-            const div = document.createElement('div');
-            const sw  = document.createElement('span');
-            sw.style.cssText = 'display:inline-block;width:12px;height:12px;margin-right:5px;background:'+p.color;
-            div.append(sw, p.name + (p.ready ? ' (Ready)' : ''));
-            lobbyList.append(div);
+            const d=document.createElement('div');
+            const sw=document.createElement('span');
+            sw.style.cssText='display:inline-block;width:12px;height:12px;margin-right:5px;background:'+p.color;
+            d.append(sw, p.name + (p.ready?' (Ready)':'')); lobbyList.append(d);
           });
-          myIndex = players.findIndex(p=>p.id===clientId);
-          if (myIndex>=0) {
-            myNameInput.disabled = myColorSelect.disabled = readyBtn.disabled = false;
-            myNameInput.value    = players[myIndex].name;
-            myColorSelect.value  = players[myIndex].color;
-            readyBtn.textContent = players[myIndex].ready ? 'Unready' : 'Ready';
+          myIndex=players.findIndex(p=>p.id===clientId);
+          if(myIndex>=0){
+            myNameInput.disabled=myColorSelect.disabled=readyBtn.disabled=false;
+            myNameInput.value=players[myIndex].name;
+            myColorSelect.value=players[myIndex].color;
+            readyBtn.textContent=players[myIndex].ready?'Unready':'Ready';
           }
-          if (players[myIndex]?.id===clientId) {
+          if(players[myIndex]?.id===clientId){
             hostStartBtn.style.display='inline-block';
-            hostStartBtn.disabled = !(players.length===maxPlayers && players.every(x=>x.ready));
+            hostStartBtn.disabled=!(players.length===maxPlayers&&players.every(x=>x.ready));
           }
         } else {
           // Game start
-          if ((mode==='join' || mode==='host') && typeof data.gridSizeDim==='number') {
-            const dim = data.gridSizeDim;
-            gridSize = dim + 1;
-            canvas.width = canvas.height = cellPx * dim;
-            gameContainer.style.width  = canvas.width + 'px';
-            gameContainer.style.height = canvas.height + 'px';
-            initMinimap();
+          if(typeof data.gridSizeDim==='number'){
+            const dim=data.gridSizeDim; gridSize=dim+1;
+            canvas.width=canvas.height=cellPx*dim;
+            gameContainer.style.width=canvas.width+'px';
+            gameContainer.style.height=canvas.height+'px';
           }
+          // build buildingSprites now that we know players[]
+          buildingSprites = {};
+          players.forEach(p=>{
+            const name=colorNameMap[p.color];
+            if(!name) return console.error('No name for color', p.color);
+            buildingSprites[p.color] = makeSprite(`assets/building_${name}.png`);
+          });
+
+          initMinimap();
           lobbyOverlay.style.display='none';
           wrapper.style.display='flex'; wrapper.classList.add('flex');
           chatSection.style.display='flex';
