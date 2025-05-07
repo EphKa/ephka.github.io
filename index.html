@@ -33,6 +33,7 @@
     select,input[type="text"],input[type="number"] { width:100%; padding:4px; box-sizing:border-box; }
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore-compat.js"></script>
   <script>
     const firebaseConfig = {
@@ -45,7 +46,19 @@
       measurementId: "G-MH6R28JNMQ"
     };
     firebase.initializeApp(firebaseConfig);
+
+        firebase.auth().signInAnonymously()
+      .then(() => {
+        console.log("Signed in anonymously, UID =", firebase.auth().currentUser.uid);
+        // now it’s safe to start reading/writing your /games collection…
+      })
+      .catch(err => console.error("Auth failed:", err));
+
+    // 3) The rest of your game setup that talks to Firestore
+    const db = firebase.firestore();
+    // […]
   </script>
+
 </head>
 <body>
   <!-- 1) Setup -->
