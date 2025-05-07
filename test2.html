@@ -350,13 +350,26 @@
         });
 
         // 3) buildings
-        cells.forEach((row,y) => {
-          row.forEach((owner,x) => {
+        cells.forEach((row, y) => {
+          row.forEach((owner, x) => {
             if (owner > 0) {
-              const { px, py } = toIso(x, y);
               const color = players[owner-1].color;
-              const img = buildingSprites[color];
-              ctxMini.drawImage(img, px - isoTileW/2, py - isoTileH, isoTileW, isoTileH);
+              const img   = buildingSprites[color];
+
+              if (!img) {
+                console.error("[Minimap] No sprite found for color:", color);
+                return;  // skip drawing this one
+              }
+              if (!(img instanceof HTMLImageElement)) {
+                console.error("[Minimap] Sprite is not an image element:", img);
+                return;
+              }
+
+              const { px, py } = toIso(x, y);
+              ctxMini.drawImage(img,
+                                px - isoTileW/2,
+                                py - isoTileH,
+                                isoTileW, isoTileH);
             }
           });
         });
