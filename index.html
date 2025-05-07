@@ -216,7 +216,7 @@
     let pings = [], pingMode=false, pingToggle=true;
     let gameOver = false;
 
-    // **Fixed** updateConfig: guard for null
+    // updateConfig with guard
     function updateConfig(){
       const sel = document.querySelector('input[name=mode]:checked');
       mode = sel ? sel.value : 'local';
@@ -228,7 +228,6 @@
     modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
     updateConfig();
 
-    // Local players UI
     function renderLocalPlayerConfig(){
       const cnt=+playerCountIn.value;
       localPlayersConfig.innerHTML='';
@@ -253,14 +252,12 @@
     renderLocalPlayerConfig();
     playerCountIn.addEventListener('input',renderLocalPlayerConfig);
 
-    // Convert raw px (including border) to grid coord
     function px2g(rawPx){
       const contentPx = rawPx - borderPx;
-      return Math.min(Math.max(Math.round(contentPx/cellPx), 0), gridSize-1);
+      return Math.min(Math.max(Math.round(contentPx/cellPx),0), gridSize-1);
     }
     function g2px(g){ return g*cellPx; }
 
-    // Initialize board
     function makeEmptyCells(){
       return Array.from({length:gridSize-1},()=>Array(gridSize-1).fill(0));
     }
@@ -272,7 +269,6 @@
       cells    =makeEmptyCells();
     }
 
-    // Occupy + flood-fill
     function canPass(x,y,nx,ny){
       if(x===nx) return !horiz[Math.min(y,ny)+1][x];
       else       return !vert[y][Math.min(x,nx)+1];
@@ -325,7 +321,6 @@
       fillTerritories(p);
     }
 
-    // Validation
     function isStraight3(sx,sy,ex,ey){
       const dx=Math.abs(ex-sx), dy=Math.abs(ey-sy);
       return (dx===3&&dy===0)||(dx===0&&dy===3);
@@ -366,7 +361,6 @@
       }
       return true;
     }
-    // Only forbid mutual endpoint↔midpoint crossing
     function noMutualEndpointMidViolation(sx,sy,ex,ey){
       const midsNew=[
         {x:sx+(ex-sx)/3,   y:sy+(ey-sy)/3},
@@ -390,17 +384,14 @@
       return true;
     }
 
-    // Draw board
     function draw(){
       ctx.clearRect(0,0,canvas.width,canvas.height);
-      // grid
       ctx.strokeStyle='#ddd'; ctx.lineWidth=1;
       for(let i=0;i<gridSize;i++){
         const p=g2px(i);
         ctx.beginPath(); ctx.moveTo(p,0); ctx.lineTo(p,canvas.height); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(0,p); ctx.lineTo(canvas.width,p);   ctx.stroke();
       }
-      // territories
       cells.forEach((row,y)=>
         row.forEach((c,x)=>{
           if(c>0){
@@ -411,35 +402,32 @@
           }
         })
       );
-      // lines
       lines.forEach((ln,i)=>{
         ctx.beginPath();
         ctx.setLineDash([]);
         ctx.lineCap='round';
-        ctx.lineWidth = (i===lines.length-1?6:4);
-        ctx.strokeStyle = players[ln.playerIndex].color;
+        ctx.lineWidth=(i===lines.length-1?6:4);
+        ctx.strokeStyle=players[ln.playerIndex].color;
         ctx.moveTo(g2px(ln.sx),g2px(ln.sy));
         ctx.lineTo(g2px(ln.ex),g2px(ln.ey));
         ctx.stroke();
       });
-      // pings (blink)
       if(pings.length && pingToggle){
         ctx.font=`${cellPx}px sans-serif`;
         pings.forEach(r=>{
           for(let dx=0;dx<r.w;dx++){
             for(let dy=0;dy<r.h;dy++){
-              ctx.fillText('⚠️', g2px(r.x+dx), g2px(r.y+dy+1));
+              ctx.fillText('⚠️',g2px(r.x+dx),g2px(r.y+dy+1));
             }
           }
         });
       }
     }
 
-    // Info & scoreboard
     function updateInfo(){
       const cnts=players.map(()=>0);
       cells.forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
-      infoEl.textContent =
+      infoEl.textContent=
         `Turn: ${players[turnIndex].name} | ` +
         players.map((p,i)=>`${p.name}: ${cnts[i]}`).join(', ');
     }
@@ -464,9 +452,7 @@
               && isConnected(x,y,ex,ey)
               && noNodeReuse(x,y,ex,ey)
               && noTerritory(x,y,ex,ey)
-              && noMutualEndpointMidViolation(x,y,ex,ey)) {
-              c++;
-            }
+              && noMutualEndpointMidViolation(x,y,ex,ey)) c++;
           });
         }
       }
@@ -478,7 +464,6 @@
       if(c===0 && !gameOver) endGame();
     }
 
-    // Endgame
     async function endGame(){
       gameOver=true;
       const cnts=players.map(()=>0);
@@ -497,31 +482,26 @@
       }
     }
 
-    // Ping blink timer: blink twice (4 toggles)
     setInterval(()=>{
-      pingToggle = !pingToggle;
+      pingToggle=!pingToggle;
       if(pings.length){
         pings.forEach(p=>p.blinkCount--);
-        if(pings[0].blinkCount <= 0) pings = [];
+        if(pings[0].blinkCount<=0) pings=[];
       }
       draw();
-    }, 500);
+    },500);
 
-    // Mouse handlers
     let clickStart=null, hoverEnd=null;
-    canvas.addEventListener('mousemove', e=>{
+    canvas.addEventListener('mousemove',e=>{
       const r=canvas.getBoundingClientRect(),
-            gx=px2g(e.clientX - r.left),
-            gy=px2g(e.clientY - r.top);
+            gx=px2g(e.clientX-r.left),
+            gy=px2g(e.clientY-r.top);
       hoverEnd={x:gx,y:gy};
       if(clickStart){
         draw();
-        ctx.beginPath();
-        ctx.setLineDash([5,5]);
-        ctx.lineWidth=2; ctx.strokeStyle='gray';
+        ctx.beginPath(); ctx.setLineDash([5,5]); ctx.lineWidth=2; ctx.strokeStyle='gray';
         ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));
-        ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y));
-        ctx.stroke();
+        ctx.lineTo(g2px(hoverEnd.x),g2px(hoverEnd.y)); ctx.stroke();
         ctx.setLineDash([]);
       } else {
         draw();
@@ -530,46 +510,32 @@
     });
     canvas.addEventListener('mouseleave',()=>hoverInfoEl.textContent='');
 
-    canvas.addEventListener('click', async e=>{
+    canvas.addEventListener('click',async e=>{
       const r=canvas.getBoundingClientRect(),
-            gx=px2g(e.clientX - r.left),
-            gy=px2g(e.clientY - r.top);
-
-      // Ping mode
+            gx=px2g(e.clientX-r.left),
+            gy=px2g(e.clientY-r.top);
       if(pingMode){
-        pings = [{ x:gx, y:gy, w:1, h:1, blinkCount:4 }];
-        pingMode = false;
-        draw();
+        pings=[{x:gx,y:gy,w:1,h:1,blinkCount:4}];
+        pingMode=false; draw(); return;
+      }
+      if((mode!=='local'&&!started)||gameOver){
+        debugEl.textContent=gameOver?'Game over.':'Not started yet.';
         return;
       }
-
-      // Not started or game over
-      if((mode!=='local' && !started) || gameOver){
-        debugEl.textContent = gameOver ? 'Game over.' : 'Not started yet.';
-        return;
+      if(mode!=='local'&&turnIndex!==myIndex){
+        debugEl.textContent='Not your turn.'; clickStart=null; return;
       }
-      if(mode!=='local' && turnIndex!==myIndex){
-        debugEl.textContent='Not your turn.';
-        clickStart = null;
-        return;
-      }
-
-      // Line placement
       if(!clickStart){
-        clickStart = {x:gx,y:gy};
-        return;
+        clickStart={x:gx,y:gy}; return;
       }
-      const sx=clickStart.x, sy=clickStart.y,
-            ex=gx, ey=gy;
-      clickStart=null;
-      debugEl.textContent='';
-
+      const sx=clickStart.x, sy=clickStart.y, ex=gx, ey=gy;
+      clickStart=null; debugEl.textContent='';
       if(!isStraight3(sx,sy,ex,ey))             debugEl.textContent='Line must be straight & length 3.';
-      else if(!isConnected(sx,s y,ex,ey))        debugEl.textContent='Must touch existing point.';
-      else if(!noNodeReuse(sx,sy,ex,ey))        debugEl.textContent='Cannot cross existing line interior.';
-      else if(!noTerritory(sx,sy,ex,ey))        debugEl.textContent='Cannot go through occupied territory.';
+      else if(!isConnected(sx,sy,ex,ey))        debugEl.textContent='Must touch existing point.';
+      else if(!noNodeReuse(sx,sy,ex,ey))        debugEl.textContent='Cannot cross interior.';
+      else if(!noTerritory(sx,sy,ex,ey))        debugEl.textContent='Cannot go through territory.';
       else if(!noMutualEndpointMidViolation(sx,sy,ex,ey))
-                                                debugEl.textContent='Illegal mutual endpoint↔midpoint cross.';
+                                                debugEl.textContent='Illegal mutual endpoint↔midpoint.';
       else {
         if(mode!=='local'){
           const newLines=[...lines,{sx,sy,ex,ey,playerIndex:turnIndex}];
@@ -588,12 +554,10 @@
       }
     });
 
-    // Chat send
-    chatSendBtn.onclick = () => {
-      const text=chatInput.value.trim();
-      if(!text) return;
+    chatSendBtn.onclick=()=>{
+      const text=chatInput.value.trim(); if(!text) return;
       const now=firebase.firestore.Timestamp.now();
-      const msg={ senderId:clientId, senderName:players[myIndex].name, text, timestamp:now };
+      const msg={senderId:clientId,senderName:players[myIndex].name,text,timestamp:now};
       gameRef.update({
         chat: firebase.firestore.FieldValue.arrayUnion(msg),
         lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
@@ -601,14 +565,12 @@
       chatInput.value='';
     };
 
-    // Ping button
-    pingBtn.onclick = () => {
-      pingMode = true;
-      debugEl.textContent = 'Click a cell to ping';
+    pingBtn.onclick=()=>{
+      pingMode=true;
+      debugEl.textContent='Click a cell to ping';
     };
 
-    // Restart button
-    restartBtn.onclick = async ()=>{
+    restartBtn.onclick=async()=>{
       if(mode==='local'){
         lines=[]; turnIndex=0; initializeGame(); draw();
         updateInfo(); updateScoreboard(); updatePossibleMoves();
@@ -629,9 +591,8 @@
       }
     };
 
-    // Start button handler
-    startBtn.onclick = async ()=>{
-      mode = document.querySelector('input[name=mode]:checked').value;
+    startBtn.onclick=async()=>{
+      mode = (document.querySelector('input[name=mode]:checked')||{}).value||'local';
       const dim=parseInt(gridSizeSelect.value,10);
       if(mode!=='join'){
         gridSize=dim+1;
@@ -640,8 +601,7 @@
         gameContainer.style.height=canvas.height+'px';
       }
       if(mode==='local'){
-        maxPlayers=+playerCountIn.value;
-        players=[];
+        maxPlayers=+playerCountIn.value; players=[];
         document.querySelectorAll('.localNameInput').forEach(el=>{
           const idx=+el.dataset.idx;
           const name=el.value||`Player ${idx+1}`;
@@ -649,25 +609,18 @@
           players.push({id:null,name,color,ready:true});
         });
         setupOverlay.style.display='none';
-        initializeGame();
-        draw(); updateInfo(); updateScoreboard(); updatePossibleMoves();
+        initializeGame(); draw(); updateInfo(); updateScoreboard(); updatePossibleMoves();
         wrapper.style.display='flex'; wrapper.classList.add('flex');
         return;
       }
-      // online host/join
       maxPlayers=+playerCountIn.value;
       const gid=mode==='host'
-        ?(() => {
-           const id=Math.random().toString(36).substr(2,9);
-           history.replaceState(null,'','?game='+id);
-           return id;
-         })()
+        ?(() => {const id=Math.random().toString(36).substr(2,9);
+                 history.replaceState(null,'','?game='+id); return id;})()
         :joinGameId.value.trim();
       if(mode==='join'&&!gid) return alert('Enter Game ID');
-      setupOverlay.style.display='none';
-      lobbyOverlay.style.display='flex';
-      lobbyGameIdEl.textContent=gid;
-      maxPlayersEl.textContent=maxPlayers;
+      setupOverlay.style.display='none'; lobbyOverlay.style.display='flex';
+      lobbyGameIdEl.textContent=gid; maxPlayersEl.textContent=maxPlayers;
       gameRef=db.collection('games').doc(gid);
       if(mode==='host'){
         players=[{id:clientId,name:'Player 1',color:DEFAULT_COLORS[0],ready:false}];
@@ -694,29 +647,23 @@
       gameRef.onSnapshot(doc=>handleSnapshot(doc.data()));
     };
 
-    // Snapshot handler
     function handleSnapshot(data){
-      players   =data.players;
-      lines     =data.lines;
-      chatArr   =data.chat;
-      turnIndex =data.turnIndex;
-      maxPlayers=data.maxPlayers;
-      started   =data.started;
+      players=data.players; lines=data.lines; chatArr=data.chat;
+      turnIndex=data.turnIndex; maxPlayers=data.maxPlayers; started=data.started;
       if(!started){
         joinedCountEl.textContent=players.length;
         lobbyList.innerHTML='';
         players.forEach(p=>{
-          const div=document.createElement('div'),
-                sw=document.createElement('span');
+          const div=document.createElement('div'), sw=document.createElement('span');
           sw.style.cssText='display:inline-block;width:12px;height:12px;margin-right:5px;background:'+p.color;
           div.append(sw,p.name+(p.ready?' (Ready)':''));
           lobbyList.append(div);
         });
         myIndex=players.findIndex(p=>p.id===clientId);
-        myNameInput.value   =players[myIndex].name;
-        myColorSelect.value =players[myIndex].color;
+        myNameInput.value=players[myIndex].name;
+        myColorSelect.value=players[myIndex].color;
         myNameInput.disabled=myColorSelect.disabled=readyBtn.disabled=false;
-        readyBtn.textContent=(players[myIndex].ready?'Unready':'Ready');
+        readyBtn.textContent=players[myIndex].ready?'Unready':'Ready';
         if(players[myIndex].id===clientId){
           hostStartBtn.style.display='inline-block';
           hostStartBtn.disabled=!(players.length===maxPlayers&&players.every(x=>x.ready));
@@ -738,18 +685,16 @@
       }
     }
 
-    // Lobby controls
     readyBtn.onclick      =()=>{ players[myIndex].ready=!players[myIndex].ready; gameRef.update({players}); };
-    hostStartBtn.onclick  =()=>gameRef.update({started:true, timestamp:firebase.firestore.FieldValue.serverTimestamp()});
+    hostStartBtn.onclick  =()=>gameRef.update({started:true,timestamp:firebase.firestore.FieldValue.serverTimestamp()});
     myNameInput.onchange  =()=>{ players[myIndex].name=myNameInput.value; gameRef.update({players}); };
     myColorSelect.onchange=()=>{ players[myIndex].color=myColorSelect.value; gameRef.update({players}); };
 
-    // Render chat
     function renderChat(){
       chatLog.innerHTML='';
       chatArr.sort((a,b)=>(
-        (a.timestamp.seconds||a.timestamp)
-        -(b.timestamp.seconds||b.timestamp)
+        (a.timestamp.seconds||a.timestamp) -
+        (b.timestamp.seconds||b.timestamp)
       )).forEach(m=>{
         const t=m.timestamp.seconds
           ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
@@ -761,7 +706,6 @@
       chatLog.scrollTop=chatLog.scrollHeight;
     }
 
-    // Show last game result
     db.collection('gameResults')
       .orderBy('timestamp','desc')
       .limit(1)
