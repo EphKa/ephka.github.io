@@ -619,6 +619,7 @@
         });
         gameRef=db.collection('games').doc(newId);
         gameOver=false;
+        // FIXED: unwrap the DocumentSnapshot before passing to handleSnapshot
         gameRef.onSnapshot(doc => {
           const data = doc.data() || {};
           handleSnapshot(data);
@@ -682,20 +683,21 @@
         });
         await gameRef.update({players});
       }
+      // FIXED: unwrap the DocumentSnapshot before passing to handleSnapshot
       gameRef.onSnapshot(doc => {
         const data = doc.data() || {};
         handleSnapshot(data);
       }, err => console.warn('Snapshot error:', err));
     };
 
-    // Snapshot handler
+    // Snapshot handler (now receiving plain data)
     function handleSnapshot(data){
-      players   =data.players   || [];
-      lines     =data.lines     || [];
-      chatArr   =data.chat      || [];
-      turnIndex =data.turnIndex || 0;
-      maxPlayers=data.maxPlayers|| maxPlayers;
-      started   =data.started   || false;
+      players   = data.players   || [];
+      lines     = data.lines     || [];
+      chatArr   = data.chat      || [];
+      turnIndex = data.turnIndex || 0;
+      maxPlayers= data.maxPlayers|| maxPlayers;
+      started   = data.started   || false;
 
       if(!started){
         joinedCountEl.textContent=players.length;
