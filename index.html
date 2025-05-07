@@ -78,9 +78,12 @@
         </label>
       </div>
       <br/><br/>
+      <div id="localConfig">
+        <label>Players: <input type="number" id="playerCount" min="2" max="8" value="2"/></label>
+        <div id="localPlayersConfig"></div>
+      </div>
       <div id="hostConfig">
         <label>Players: <input type="number" id="playerCount" min="2" max="8" value="2"/></label>
-        <div id="localPlayersConfig" style="margin-top:12px;"></div>
       </div>
       <div id="joinConfig" style="display:none;">
         <label>Game ID: <input id="joinGameId" type="text" placeholder="Enter Game ID to join"/></label>
@@ -399,9 +402,18 @@
       // Show/hide based on mode
       function updateConfig(){
         mode = document.querySelector('input[name=mode]:checked').value;
-        hostConfig.style.display     = mode!=='join' ? 'block' : 'none';
-        joinConfig.style.display     = mode==='join'  ? 'block' : 'none';
-        gridSizeConfig.style.display = mode==='join'  ? 'none'  : 'block';
+
+        // grid size only for local & host
+        gridSizeConfig.style.display = (mode === 'join') ? 'none' : 'block';
+
+        // local → show localConfig only
+        localConfig.style.display = (mode === 'local') ? 'block' : 'none';
+
+        // host → show hostConfig only
+        hostConfig.style.display = (mode === 'host')  ? 'block' : 'none';
+
+        // join → show joinConfig only
+        joinConfig.style.display = (mode === 'join')  ? 'block' : 'none';
       }
       modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
       updateConfig();
@@ -603,6 +615,7 @@
             const next=(turnIndex+1)%players.length;
             await gameRef.update({ lines:newLines, turnIndex:next, timestamp:firebase.firestore.FieldValue.serverTimestamp() });
           } else {
+            lines.push({ sx, sy, ex, ey, playerIndex: turnIndex });
             occupy(sx,sy,ex,ey,turnIndex);
             turnIndex=(turnIndex+1)%players.length;
             draw(); updateInfo();
