@@ -39,7 +39,7 @@
     #wrapper.flex { display: flex; }
     #main { display: flex; }
 
-    /* Separator between columns */
+    /* Separator between game and sidebar */
     #game-container {
       border-right: 1px solid #ccc;
       padding-right: 16px;
@@ -54,7 +54,7 @@
       box-sizing: content-box;
     }
 
-    /* Sidebar */
+    /* Sidebar sections */
     #sidebar > div {
       border-top: 1px solid #ccc;
       padding-top: 12px;
@@ -178,7 +178,7 @@
   </div>
 
   <script>
-  // Initialize Firebase
+  // Firebase init
   const firebaseConfig = {
     apiKey: "AIzaSyAlZwiFJYt73ZamlICtOSRUMOmEujPahTY",
     authDomain: "territory-58483.firebaseapp.com",
@@ -195,7 +195,6 @@
   const db = firebase.firestore();
 
   document.addEventListener('DOMContentLoaded', () => {
-    // Shortcuts and state
     const $ = id => document.getElementById(id);
     const clientId = Math.random().toString(36).substr(2,9);
 
@@ -233,15 +232,14 @@
           ctx               = canvas.getContext('2d'),
           gameContainer     = $('game-container');
 
-    // Constants & state
     const DEFAULT_COLORS = ['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'];
-    let mode, gridSize, maxPlayers, myIndex = -1, gameRef, started=false;
+    let mode, gridSize, maxPlayers, myIndex=-1, gameRef, started=false;
     let players=[], lines=[], chatArr=[], turnIndex=0;
     let endpoints, mids, horiz, vert, cells;
-    const cellPx = 20, borderPx = 20;
-    let pings = [], pingMode=false, pingToggle=true, gameOver=false;
+    const cellPx=20, borderPx=20;
+    let pings=[], pingMode=false, pingToggle=true, gameOver=false;
 
-    // Panel show/hide
+    // Config panel
     function updateConfig(){
       const sel = document.querySelector('input[name=mode]:checked');
       mode = sel ? sel.value : 'local';
@@ -250,7 +248,7 @@
       hostConfig  .style.display   = mode==='host'?'block':'none';
       joinConfig  .style.display   = mode==='join'?'block':'none';
     }
-    modeRadios.forEach(r=>r.addEventListener('change', updateConfig));
+    modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
     updateConfig();
 
     // Local players UI
@@ -258,9 +256,9 @@
       const cnt = +playerCountIn.value;
       localPlayersConfig.innerHTML = '';
       for(let i=1;i<=cnt;i++){
-        const div = document.createElement('div');
-        div.className = 'player-row';
-        div.innerHTML = `
+        const div=document.createElement('div');
+        div.className='player-row';
+        div.innerHTML=`
           <label>Name:
             <input type="text" class="localNameInput" data-idx="${i-1}" value="Player ${i}"/>
           </label>
@@ -275,12 +273,12 @@
       }
     }
     renderLocalPlayerConfig();
-    playerCountIn.addEventListener('input', renderLocalPlayerConfig);
+    playerCountIn.addEventListener('input',renderLocalPlayerConfig);
 
-    // Helpers
+    // Grid helpers
     function px2g(rawPx){
       const contentPx = rawPx - borderPx;
-      return Math.min(Math.max(Math.round(contentPx/cellPx),0), gridSize-1);
+      return Math.min(Math.max(Math.round(contentPx/cellPx),0),gridSize-1);
     }
     function g2px(g){ return g*cellPx; }
 
@@ -299,11 +297,11 @@
     // Territory logic
     function canPass(x,y,nx,ny){
       if(x===nx) return !horiz[Math.min(y,ny)+1][x];
-      else       return !vert[y][Math.min(x,nx)+1];
+      return !vert[y][Math.min(x,nx)+1];
     }
     function fillTerritories(pl){
-      const rows = gridSize-1, cols = gridSize-1;
-      const vis = Array.from({length:rows},()=>Array(cols).fill(false));
+      const rows=gridSize-1, cols=gridSize-1;
+      const vis=Array.from({length:rows},()=>Array(cols).fill(false));
       for(let y=0;y<rows;y++){
         for(let x=0;x<cols;x++){
           if(vis[y][x]||cells[y][x]!==0) continue;
@@ -445,25 +443,21 @@
       if(pings.length && pingToggle){
         ctx.font=`${cellPx}px sans-serif`;
         pings.forEach(r=>{
-          for(let dx=0;dx<r.w;dx++){
-            for(let dy=0;dy<r.h;dy++){
-              ctx.fillText('⚠️', g2px(r.x+dx), g2px(r.y+dy+1));
-            }
-          }
+          ctx.fillText('⚠️', g2px(r.x), g2px(r.y+1));
         });
       }
     }
 
-    // Info
+    // Info update
     function updateInfo(){
       const cnts = players.map(()=>0);
-      (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
+      (cells||[]).forEach(row=>row.forEach(c=>{ if(c>0) cnts[c-1]++; }));
       infoEl.textContent =
         `Turn: ${players[turnIndex]?.name||''} | ` +
         players.map((p,i)=>`${p.name}: ${cnts[i]}`).join(', ');
     }
 
-    // Possible moves
+    // Count possible moves & end game
     function countPossibleMoves(){
       let c=0;
       for(let y=0;y<gridSize;y++){
@@ -484,20 +478,16 @@
     }
     function updatePossibleMoves(){
       const c = countPossibleMoves();
-      $('possibleCount')?.textContent = c;
       if(c===0 && !gameOver) endGame();
     }
 
-    // End game
     async function endGame(){
-      gameOver = true;
+      gameOver=true;
       const cnts = players.map(()=>0);
-      (cells||[]).forEach((row,y)=>row.forEach((c,x)=>{ if(c>0) cnts[c-1]++; }));
-      const maxTerr = Math.max(...cnts),
-            winnerIdx = cnts.indexOf(maxTerr),
+      (cells||[]).forEach(row=>row.forEach(c=>{ if(c>0) cnts[c-1]++; }));
+      const winnerIdx = cnts.indexOf(Math.max(...cnts)),
             winnerName = players[winnerIdx]?.name;
-      alert(`Game over! ${winnerName} wins with ${maxTerr} territories.`);
-      // no gameResults write
+      alert(`Game over! ${winnerName} wins with ${cnts[winnerIdx]} territories.`);
     }
 
     // Ping blink
@@ -505,173 +495,166 @@
       pingToggle = !pingToggle;
       if(pings.length){
         pings.forEach(p=>p.blinkCount--);
-        if(pings[0].blinkCount <= 0) pings = [];
+        if(pings[0].blinkCount<=0) pings=[];
       }
       draw();
-    }, 500);
+    },500);
 
-    // Safe input handlers
+    // Safe handlers
     myNameInput.onchange = () => {
-      if(myIndex < 0 || !players[myIndex]) return;
+      if(myIndex<0 || !players[myIndex]) return;
       players[myIndex].name = myNameInput.value;
       gameRef.update({ players });
     };
     readyBtn.onclick = () => {
-      if(myIndex < 0 || !players[myIndex]) return;
+      if(myIndex<0 || !players[myIndex]) return;
       players[myIndex].ready = !players[myIndex].ready;
       gameRef.update({ players });
     };
     myColorSelect.onchange = () => {
-      if(myIndex < 0 || !players[myIndex]) return;
+      if(myIndex<0 || !players[myIndex]) return;
       players[myIndex].color = myColorSelect.value;
       gameRef.update({ players });
     };
 
     // Mouse handlers
-    let clickStart = null;
-    canvas.addEventListener('mousemove', e => {
-      const r = canvas.getBoundingClientRect(),
-            gx = px2g(e.clientX - r.left),
-            gy = px2g(e.clientY - r.top);
+    let clickStart=null;
+    canvas.addEventListener('mousemove', e=>{
+      const r=canvas.getBoundingClientRect(),
+            gx=px2g(e.clientX-r.left),
+            gy=px2g(e.clientY-r.top);
       if(clickStart){
         draw();
         ctx.beginPath(); ctx.setLineDash([5,5]);
-        ctx.lineWidth = 2; ctx.strokeStyle = 'gray';
+        ctx.lineWidth=2; ctx.strokeStyle='gray';
         ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));
         ctx.lineTo(g2px(gx),g2px(gy)); ctx.stroke();
         ctx.setLineDash([]);
       } else {
-        hoverInfoEl.textContent = `Hovered: (${gx},${gy})`;
+        hoverInfoEl.textContent=`Hovered: (${gx},${gy})`;
       }
     });
-    canvas.addEventListener('mouseleave', () => hoverInfoEl.textContent = '');
+    canvas.addEventListener('mouseleave',()=>hoverInfoEl.textContent='');
 
-    canvas.addEventListener('click', async e => {
-      const r = canvas.getBoundingClientRect(),
-            gx = px2g(e.clientX - r.left),
-            gy = px2g(e.clientY - r.top);
+    canvas.addEventListener('click', async e=>{
+      const r=canvas.getBoundingClientRect(),
+            gx=px2g(e.clientX-r.left),
+            gy=px2g(e.clientY-r.top);
       if(pingMode){
-        pings = [{ x:gx, y:gy, w:1, h:1, blinkCount:4 }];
-        pingMode = false; draw(); return;
+        pings=[{x:gx,y:gy,blinkCount:4}];
+        pingMode=false; draw(); return;
       }
-      if((mode!=='local' && !started) || gameOver){
-        debugEl.textContent = gameOver ? 'Game over.' : 'Not started yet.';
+      if((mode!=='local'&&!started)||gameOver){
+        debugEl.textContent=gameOver?'Game over.':'Not started yet.';
         return;
       }
-      if(mode!=='local' && turnIndex!==myIndex){
-        debugEl.textContent = 'Not your turn.'; clickStart = null; return;
+      if(mode!=='local'&&turnIndex!==myIndex){
+        debugEl.textContent='Not your turn.'; clickStart=null; return;
       }
       if(!clickStart){
-        clickStart = { x:gx, y:gy }; return;
+        clickStart={x:gx,y:gy}; return;
       }
-      const sx = clickStart.x, sy = clickStart.y, ex = gx, ey = gy;
-      clickStart = null; debugEl.textContent = '';
+      const sx=clickStart.x, sy=clickStart.y, ex=gx, ey=gy;
+      clickStart=null; debugEl.textContent='';
       if(!isStraight3(sx,sy,ex,ey))             debugEl.textContent='Line must be straight & length 3.';
       else if(!isConnected(sx,sy,ex,ey))        debugEl.textContent='Must touch existing point.';
-      else if(!noNodeReuse(sx,sy,ex,ey))        debugEl.textContent='Cannot cross existing line interior.';
-      else if(!noTerritory(sx,sy,ex,ey))        debugEl.textContent='Cannot go through occupied territory.';
+      else if(!noNodeReuse(sx,sy,ex,ey))        debugEl.textContent='Cannot cross interior.';
+      else if(!noTerritory(sx,sy,ex,ey))        debugEl.textContent='Cannot go through territory.';
       else if(!noMutualEndpointMidViolation(sx,sy,ex,ey))
-                                                debugEl.textContent='Illegal mutual endpoint↔midpoint cross.';
+                                                debugEl.textContent='Illegal endpoint↔midpoint cross.';
       else {
         if(mode!=='local'){
-          const newLines = [...(lines||[]), { sx, sy, ex, ey, playerIndex: turnIndex }];
-          const next     = (turnIndex+1) % players.length;
-          gameRef.update({
-            lines: newLines,
+          const newLines=[...(lines||[]),{sx,sy,ex,ey,playerIndex:turnIndex}];
+          const next=(turnIndex+1)%players.length;
+          await gameRef.update({
+            lines:newLines,
             turnIndex: next,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
           });
         } else {
-          lines.push({ sx, sy, ex, ey, playerIndex: turnIndex });
+          lines.push({sx,sy,ex,ey,playerIndex:turnIndex});
           occupy(sx,sy,ex,ey,turnIndex);
-          turnIndex = (turnIndex+1) % players.length;
+          turnIndex=(turnIndex+1)%players.length;
           draw(); updateInfo(); updatePossibleMoves();
         }
       }
     });
 
     // Chat send
-    chatSendBtn.onclick = () => {
-      const text = chatInput.value.trim(); if(!text) return;
-      const now  = firebase.firestore.Timestamp.now();
-      const msg  = { senderId: clientId, senderName: players[myIndex]?.name, text, timestamp: now };
+    chatSendBtn.onclick=()=>{
+      const text=chatInput.value.trim(); if(!text) return;
+      const now=firebase.firestore.Timestamp.now();
+      const msg={senderId:clientId,senderName:players[myIndex]?.name,text,timestamp:now};
       gameRef.update({
         chat: firebase.firestore.FieldValue.arrayUnion(msg),
         lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
       });
-      chatInput.value = '';
+      chatInput.value='';
     };
 
     // Ping button
-    pingBtn.onclick = () => {
-      pingMode = true;
-      debugEl.textContent = 'Click a cell to ping';
+    pingBtn.onclick=()=>{
+      pingMode=true;
+      debugEl.textContent='Click a cell to ping';
     };
 
-    // Restart button
-    restartBtn.onclick = async () => {
+    // Restart
+    restartBtn.onclick=async()=>{
       if(mode==='local'){
         lines=[]; turnIndex=0; initializeGame(); draw();
         updateInfo(); updatePossibleMoves(); gameOver=false;
       } else {
-        const newId = Math.random().toString(36).substr(2,9);
+        const newId=Math.random().toString(36).substr(2,9);
         history.replaceState(null,'','?game='+newId);
-        const dim = parseInt(gridSizeSelect.value,10);
+        const dim=parseInt(gridSizeSelect.value,10);
         await db.collection('games').doc(newId).set({
           maxPlayers, players, turnIndex:0,
           lines:[], chat:[], started:true,
           gridSizeDim: dim,
           timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
-        gameRef = db.collection('games').doc(newId);
-        gameOver = false;
+        gameRef=db.collection('games').doc(newId);
+        gameOver=false;
         gameRef.onSnapshot(handleSnapshot, err=>console.warn('Snapshot error:', err));
       }
     };
 
-    // Start button
-    startBtn.onclick = async () => {
-      const sel = document.querySelector('input[name=mode]:checked');
-      mode = sel?.value || 'local';
-      const dim = parseInt(gridSizeSelect.value,10);
+    // Start
+    startBtn.onclick=async()=>{
+      const sel=document.querySelector('input[name=mode]:checked');
+      mode=sel?.value||'local';
+      const dim=parseInt(gridSizeSelect.value,10);
       if(mode!=='join'){
-        gridSize = dim+1;
-        canvas.width  = canvas.height = cellPx*dim;
-        gameContainer.style.width  = canvas.width+'px';
-        gameContainer.style.height = canvas.height+'px';
+        gridSize=dim+1;
+        canvas.width=canvas.height=cellPx*dim;
+        gameContainer.style.width=canvas.width+'px';
+        gameContainer.style.height=canvas.height+'px';
       }
       if(mode==='local'){
-        maxPlayers = +playerCountIn.value;
-        players = [];
+        maxPlayers=+playerCountIn.value; players=[];
         document.querySelectorAll('.localNameInput').forEach(el=>{
-          const idx   = +el.dataset.idx;
-          const name  = el.value || `Player ${idx+1}`;
-          const color = document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value;
-          players.push({ id:null, name, color, ready:true });
+          const idx=+el.dataset.idx;
+          const name=el.value||`Player ${idx+1}`;
+          const color=document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value;
+          players.push({id:null,name,color,ready:true});
         });
-        setupOverlay.style.display = 'none';
+        setupOverlay.style.display='none';
         initializeGame(); draw(); updateInfo(); updatePossibleMoves();
         wrapper.style.display='flex'; wrapper.classList.add('flex');
         return;
       }
-      maxPlayers = +playerCountIn.value;
-      const gid = mode==='host'
-        ? (() => {
-            const id = Math.random().toString(36).substr(2,9);
-            history.replaceState(null,'','?game='+id);
-            return id;
-          })()
-        : $('joinGameId').value.trim();
-      if(mode==='join' && !gid) return alert('Enter Game ID');
-
+      maxPlayers=+playerCountIn.value;
+      const gid=mode==='host'
+        ?(()=>{const id=Math.random().toString(36).substr(2,9);
+               history.replaceState(null,'','?game='+id);return id;})()
+        :$('joinGameId').value.trim();
+      if(mode==='join'&&!gid) return alert('Enter Game ID');
       setupOverlay.style.display='none';
       lobbyOverlay.style.display='flex';
-      lobbyGameIdEl.textContent = gid;
-      maxPlayersEl.textContent  = maxPlayers;
-      gameRef = db.collection('games').doc(gid);
-
+      lobbyGameIdEl.textContent=gid; maxPlayersEl.textContent=maxPlayers;
+      gameRef=db.collection('games').doc(gid);
       if(mode==='host'){
-        players = [{ id: clientId, name:'Player 1', color:DEFAULT_COLORS[0], ready:false }];
+        players=[{id:clientId,name:'Player 1',color:DEFAULT_COLORS[0],ready:false}];
         await gameRef.set({
           maxPlayers, players, turnIndex:0,
           lines:[], chat:[], started:false,
@@ -679,59 +662,58 @@
           timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
       } else {
-        const snap = await gameRef.get();
+        const snap=await gameRef.get();
         if(!snap.exists) return alert('Game not found');
-        const data = snap.data();
-        if(data.players.length >= data.maxPlayers) return alert('Game is full');
-        players = data.players;
+        const data=snap.data();
+        if(data.players.length>=data.maxPlayers) return alert('Game is full');
+        players=data.players;
         players.push({
-          id: clientId,
+          id:clientId,
           name:`Player ${players.length+1}`,
-          color: DEFAULT_COLORS[players.length % DEFAULT_COLORS.length],
+          color:DEFAULT_COLORS[players.length%DEFAULT_COLORS.length],
           ready:false
         });
-        await gameRef.update({ players });
+        await gameRef.update({players});
       }
-      gameRef.onSnapshot(handleSnapshot, err=>console.warn('Game snapshot error:', err));
+      gameRef.onSnapshot(handleSnapshot, err=>console.warn('Snapshot error:', err));
     };
 
     // Snapshot handler
     function handleSnapshot(data){
-      players    = data.players   || [];
-      lines      = data.lines     || [];
-      chatArr    = data.chat      || [];
-      turnIndex  = data.turnIndex || 0;
-      maxPlayers = data.maxPlayers|| maxPlayers;
-      started    = data.started   || false;
+      players   =data.players   || [];
+      lines     =data.lines     || [];
+      chatArr   =data.chat      || [];
+      turnIndex =data.turnIndex || 0;
+      maxPlayers=data.maxPlayers|| maxPlayers;
+      started   =data.started   || false;
 
       if(!started){
-        joinedCountEl.textContent = players.length;
-        lobbyList.innerHTML = '';
+        joinedCountEl.textContent=players.length;
+        lobbyList.innerHTML='';
         players.forEach(p=>{
-          const div = document.createElement('div'),
-                sw  = document.createElement('span');
+          const div=document.createElement('div'), sw=document.createElement('span');
           sw.style.cssText='display:inline-block;width:12px;height:12px;margin-right:5px;background:'+p.color;
-          div.append(sw, p.name + (p.ready?' (Ready)':''));
+          div.append(sw, p.name+(p.ready?' (Ready)':''));
           lobbyList.append(div);
         });
-        myIndex = players.findIndex(p=>p.id===clientId);
-        if(myIndex >= 0){
-          myNameInput.disabled = myColorSelect.disabled = readyBtn.disabled = false;
-          myNameInput.value    = players[myIndex].name;
-          myColorSelect.value  = players[myIndex].color;
-          readyBtn.textContent = players[myIndex].ready ? 'Unready' : 'Ready';
+        myIndex=players.findIndex(p=>p.id===clientId);
+        if(myIndex>=0){
+          myNameInput.disabled=myColorSelect.disabled=readyBtn.disabled=false;
+          myNameInput.value=players[myIndex].name;
+          myColorSelect.value=players[myIndex].color;
+          readyBtn.textContent=players[myIndex].ready?'Unready':'Ready';
         }
-        if(players[myIndex]?.id === clientId){
-          hostStartBtn.style.display = 'inline-block';
-          hostStartBtn.disabled = !(players.length===maxPlayers && players.every(x=>x.ready));
+        if(players[myIndex]?.id===clientId){
+          hostStartBtn.style.display='inline-block';
+          hostStartBtn.disabled=!(players.length===maxPlayers && players.every(x=>x.ready));
         }
       } else {
-        if(mode==='join' && typeof data.gridSizeDim==='number'){
-          const dim = data.gridSizeDim;
-          gridSize = dim+1;
-          canvas.width  = canvas.height = cellPx*dim;
-          gameContainer.style.width  = canvas.width+'px';
-          gameContainer.style.height = canvas.height+'px';
+        if(mode==='join'&&typeof data.gridSizeDim==='number'){
+          const dim=data.gridSizeDim;
+          gridSize=dim+1;
+          canvas.width=canvas.height=cellPx*dim;
+          gameContainer.style.width=canvas.width+'px';
+          gameContainer.style.height=canvas.height+'px';
         }
         lobbyOverlay.style.display='none';
         wrapper.style.display='flex'; wrapper.classList.add('flex');
@@ -744,7 +726,7 @@
 
     // Render chat
     function renderChat(){
-      chatLog.innerHTML = '';
+      chatLog.innerHTML='';
       (chatArr||[]).sort((a,b)=>{
         const ta=a.timestamp.seconds||a.timestamp, tb=b.timestamp.seconds||b.timestamp;
         return ta - tb;
@@ -752,11 +734,11 @@
         const t = m.timestamp.seconds
           ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
           : new Date(m.timestamp).toLocaleTimeString();
-        const div = document.createElement('div');
-        div.innerHTML = `<strong>${m.senderName}</strong> [${t}]: ${m.text}`;
+        const div=document.createElement('div');
+        div.innerHTML=`<strong>${m.senderName}</strong> [${t}]: ${m.text}`;
         chatLog.append(div);
       });
-      chatLog.scrollTop = chatLog.scrollHeight;
+      chatLog.scrollTop=chatLog.scrollHeight;
     }
 
   }); // end DOMContentLoaded
