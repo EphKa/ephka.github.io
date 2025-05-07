@@ -13,6 +13,7 @@
       height: 100%;
       margin: 0;
       font-family: sans-serif;
+
     }
 
     /* Overlays */
@@ -55,30 +56,42 @@
     }
 
     /* Sidebar layout */
-    #sidebar {
+    /* make the sidebar itself a horizontal flex container */
+      #sidebar {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    background: #fafafa;
+    z-index: 1000;
+  }
+
+    /* remove the old borders/margins between sections */
+    #sidebar > div {
+      margin: 0;
+      padding: 0;
+      border: none;
+    }
+
+    /* chat panel takes ~60% of sidebar, sticks to top */
+    #chatSection {
       display: flex;
       flex-direction: column;
-      flex: 1;
-    }
-    #sidebar > div {
-      border-top: 1px solid #ccc;
-      padding-top: 12px;
-      margin-top: 12px;
-    }
-    #sidebar > div:first-child {
-      border-top: none;
-      padding-top: 0;
-      margin-top: 0;
+      width: 60%;
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
 
-    /* Scoreboard */
-    #scoreboard h4 { margin: 0 0 8px; }
-
-    /* Chat section */
-    #chatSection {
-      flex: 1;
-      display: none;
-      flex-direction: column;
+    /* score panel takes ~35% of sidebar, sticks to top and centers its contents */
+    #scoreboard {
+      width: 35%;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      text-align: center;
     }
     #chatSection h4 { margin: 0 0 8px; }
     #chatLog {
