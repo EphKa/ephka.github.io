@@ -1,308 +1,310 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Grid Territory Multiplayer</title>
-  <style>
-    body,html { margin:0; padding:0; height:100%; font-family:sans-serif; }
-    /* Overlays */
-    #setupOverlay, #lobbyOverlay {
-      position:absolute; top:0; left:0; width:100%; height:100%;
-      background:rgba(255,255,255,0.95);
-      display:flex; align-items:center; justify-content:center; z-index:10;
-    }
-    .dialog {
-      background:#fff; padding:20px; border:1px solid #ccc; border-radius:4px;
-      max-width:400px; width:100%;
-    }
-    .player-row { display:flex; align-items:center; margin-bottom:8px; }
-    .player-row label { flex:1; }
-    /* Main game */
-    #wrapper { display:none; height:100%; flex-direction:column; }
-    #wrapper.flex { display:flex; }
-    #main { display:flex; flex:1; }
-    #game-container { position:relative; }
-    canvas { position:absolute; top:0; left:0; background:#fff; }
-    #sidebar { margin-left:20px; width:200px; }
-    #chatLog { overflow-y:auto; height:200px; border:1px solid #ccc; padding:5px; }
-    #info { margin-top:8px; font-weight:600; }
-    #hoverInfo { margin-top:4px; font-size:.9em; color:#333; }
-    #debug { margin-top:8px; font-size:.8em; color:#a00; white-space:pre-wrap; }
-    button { margin-top:8px; padding:6px 12px; font-size:.9rem; cursor:pointer; }
-    select,input[type="text"],input[type="number"] { width:100%; padding:4px; box-sizing:border-box; }
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+    <title>Grid Territory Multiplayer</title>
+    <style>
+      body,html { margin:0; padding:0; height:100%; font-family:sans-serif; }
+      /* Overlays */
+      #setupOverlay, #lobbyOverlay {
+        position:absolute; top:0; left:0; width:100%; height:100%;
+        background:rgba(255,255,255,0.95);
+        display:flex; align-items:center; justify-content:center; z-index:10;
+      }
+      .dialog {
+        background:#fff; padding:20px; border:1px solid #ccc; border-radius:4px;
+        max-width:400px; width:100%;
+      }
+      .player-row { display:flex; align-items:center; margin-bottom:8px; }
+      .player-row label { flex:1; }
+      /* Main game */
+      #wrapper { display:none; height:100%; flex-direction:column; }
+      #wrapper.flex { display:flex; }
+      #main { display:flex; flex:1; }
+      #game-container { position:relative; }
+      canvas { position:absolute; top:0; left:0; background:#fff; }
+      #sidebar { margin-left:20px; width:200px; }
+      #chatLog { overflow-y:auto; height:200px; border:1px solid #ccc; padding:5px; }
+      #info { margin-top:8px; font-weight:600; }
+      #hoverInfo { margin-top:4px; font-size:.9em; color:#333; }
+      #debug { margin-top:8px; font-size:.8em; color:#a00; white-space:pre-wrap; }
+      button { margin-top:8px; padding:6px 12px; font-size:.9rem; cursor:pointer; }
+      select,input[type="text"],input[type="number"] { width:100%; padding:4px; box-sizing:border-box; }
 
-    /* Tighter spacing for local setup rows */
-    #localPlayersConfig .player-row { margin-bottom:4px; }
-  </style>
-  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore-compat.js"></script>
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyAlZwiFJYt73ZamlICtOSRUMOmEujPahTY",
-      authDomain: "territory-58483.firebaseapp.com",
-      projectId: "territory-58483",
-      storageBucket: "territory-58483.firebasestorage.app",
-      messagingSenderId: "848779508191",
-      appId: "1:848779508191:web:54af4953cb1ce7c8b5ac6a",
-      measurementId: "G-MH6R28JNMQ"
-    };
-    firebase.initializeApp(firebaseConfig);
+      /* Tighter spacing for local setup rows */
+      #localPlayersConfig .player-row { margin-bottom:4px; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore-compat.js"></script>
+    <script>
+      const firebaseConfig = {
+        apiKey: "AIzaSyAlZwiFJYt73ZamlICtOSRUMOmEujPahTY",
+        authDomain: "territory-58483.firebaseapp.com",
+        projectId: "territory-58483",
+        storageBucket: "territory-58483.firebasestorage.app",
+        messagingSenderId: "848779508191",
+        appId: "1:848779508191:web:54af4953cb1ce7c8b5ac6a",
+        measurementId: "G-MH6R28JNMQ"
+      };
+      firebase.initializeApp(firebaseConfig);
 
-    firebase.auth().signInAnonymously()
-      .then(() => {
-        console.log("Signed in anonymously, UID =", firebase.auth().currentUser.uid);
-      })
-      .catch(err => console.error("Auth failed:", err));
+      firebase.auth().signInAnonymously()
+        .then(() => {
+          console.log("Signed in anonymously, UID =", firebase.auth().currentUser.uid);
+        })
+        .catch(err => console.error("Auth failed:", err));
 
-    const db = firebase.firestore();
-  </script>
-</head>
-<body>
-  <!-- 1) Setup -->
-  <div id="setupOverlay">
-    <div class="dialog">
-      <h3>Setup Game</h3>
-      <label><input type="radio" name="mode" value="local" checked> Local</label>
-      <label><input type="radio" name="mode" value="host"> Host Online</label>
-      <label><input type="radio" name="mode" value="join"> Join Online</label>
-      <br/><br/>
-      <div id="gridSizeConfig">
-        <label>Grid Size:
-          <select id="gridSizeSelect">
-            <option value="10">Small (10×10)</option>
-            <option value="20" selected>Medium (20×20)</option>
-            <option value="50">Large (50×50)</option>
-          </select>
-        </label>
-      </div>
-      <br/><br/>
-      <div id="hostConfig">
-        <label>Players: <input type="number" id="playerCount" min="2" max="8" value="2"/></label>
-        <div id="localPlayersConfig" style="margin-top:12px;"></div>
-      </div>
-      <div id="joinConfig" style="display:none;">
-        <label>Game ID: <input id="joinGameId" type="text" placeholder="Enter Game ID to join"/></label>
-      </div>
-      <button id="startBtn">Next →</button>
-    </div>
-  </div>
-
-  <!-- 2) Lobby -->
-  <div id="lobbyOverlay" style="display:none;">
-    <div class="dialog">
-      <h3>Game Lobby</h3>
-      <p>Game ID: <strong id="lobbyGameId"></strong></p>
-      <p>Players (<span id="joinedCount">0</span>/<span id="maxPlayersDisplay">0</span>):</p>
-      <div id="lobbyPlayersList"></div>
-      <hr/>
-      <h4>You</h4>
-      <div class="player-row">
-        <label>Name: <input id="myName" type="text"/></label>
-      </div>
-      <div class="player-row">
-        <label>Color:
-          <select id="myColor">
-            <option value="#006400">darkgreen</option>
-            <option value="#ff0000">red</option>
-            <option value="#ffd700">gold</option>
-            <option value="#c71585">mediumvioletred</option>
-            <option value="#00ff00">lime</option>
-            <option value="#00ffff">aqua</option>
-            <option value="#0000ff">blue</option>
-            <option value="#1e90ff">dodgerblue</option>
-          </select>
-        </label>
-      </div>
-      <button id="readyBtn">Ready</button>
-      <button id="hostStartBtn" style="display:none;">Start Game</button>
-    </div>
-  </div>
-
-  <!-- 3) Main Game UI -->
-  <div id="wrapper">
-    <h2>Grid Territory</h2>
-    <div id="main">
-      <div id="game-container">
-        <canvas id="gameCanvas"></canvas>
-        <div id="hoverInfo"></div>
-      </div>
-      <div id="sidebar">
-        <div id="chatSection" style="display:none;">
-          <h4>Chat</h4>
-          <div id="chatLog"></div>
-          <input id="chatInput" type="text" placeholder="Type message..."/>
-          <button id="chatSendBtn">Send</button>
-        </div>
-      </div>
-    </div>
-    <div id="info">Waiting…</div>
-    <div id="debug"></div>
-    <button id="restartBtn">Restart Game</button>
-  </div>
-
-  <script>
-  const DEFAULT_COLORS = [
-    '#006400', '#ff0000', '#ffd700', '#c71585',
-    '#00ff00', '#00ffff', '#0000ff', '#1e90ff'
-  ];
-
-  document.addEventListener('DOMContentLoaded', () => {
-    const $ = id => document.getElementById(id);
-    const clientId = Math.random().toString(36).substr(2,9);
-    let mode, gridSize, maxPlayers, myIndex, gameRef, started = false;
-    let players = [], lines = [], chat = [], turnIndex = 0;
-    const cellPx = 20,
-          db     = firebase.firestore();
-
-    // UI refs
-    const modeRadios        = document.getElementsByName('mode'),
-          gridSizeConfig    = $('gridSizeConfig'),
-          gridSizeSelect    = $('gridSizeSelect'),
-          hostConfig        = $('hostConfig'),
-          joinConfig        = $('joinConfig'),
-          playerCountIn     = $('playerCount'),
-          localPlayersConfig= $('localPlayersConfig'),
-          joinGameId        = $('joinGameId'),
-          startBtn          = $('startBtn'),
-          setupOverlay      = $('setupOverlay'),
-          lobbyOverlay      = $('lobbyOverlay'),
-          lobbyGameIdEl     = $('lobbyGameId'),
-          maxPlayersEl      = $('maxPlayersDisplay'),
-          joinedCountEl     = $('joinedCount'),
-          lobbyList         = $('lobbyPlayersList'),
-          myNameInput       = $('myName'),
-          myColorSelect     = $('myColor'),
-          readyBtn          = $('readyBtn'),
-          hostStartBtn      = $('hostStartBtn'),
-          wrapper           = $('wrapper'),
-          chatSection       = $('chatSection'),
-          chatLog           = $('chatLog'),
-          chatInput         = $('chatInput'),
-          chatSendBtn       = $('chatSendBtn'),
-          infoEl            = $('info'),
-          hoverInfoEl       = $('hoverInfo'),
-          debugEl           = $('debug'),
-          restartBtn        = $('restartBtn'),
-          canvas            = $('gameCanvas'),
-          ctx               = canvas.getContext('2d'),
-          gameContainer     = $('game-container');
-
-    // Render name+color inputs for local players
-    function renderLocalPlayerConfig() {
-      const count = +playerCountIn.value;
-      localPlayersConfig.innerHTML = '';
-      for (let i = 1; i <= count; i++) {
-        const row = document.createElement('div');
-        row.className = 'player-row';
-        row.innerHTML = `
-          <label>Name:
-            <input
-              type="text"
-              class="localNameInput"
-              data-idx="${i-1}"
-              value="Player ${i}"
-            />
-          </label>
-          <label>Color:
-            <select class="localColorSelect" data-idx="${i-1}">
-              ${DEFAULT_COLORS.map((c, j) =>
-                `<option value="${c}" ${j === (i-1) ? 'selected' : ''}>${c}</option>`
-              ).join('')}
+      const db = firebase.firestore();
+    </script>
+  </head>
+  <body>
+    <!-- 1) Setup -->
+    <div id="setupOverlay">
+      <div class="dialog">
+        <h3>Setup Game</h3>
+        <label><input type="radio" name="mode" value="local" checked> Local</label>
+        <label><input type="radio" name="mode" value="host"> Host Online</label>
+        <label><input type="radio" name="mode" value="join"> Join Online</label>
+        <br/><br/>
+        <div id="gridSizeConfig">
+          <label>Grid Size:
+            <select id="gridSizeSelect">
+              <option value="10">Small (10×10)</option>
+              <option value="20" selected>Medium (20×20)</option>
+              <option value="50">Large (50×50)</option>
             </select>
           </label>
-        `;
-        localPlayersConfig.appendChild(row);
+        </div>
+        <br/><br/>
+        <div id="hostConfig">
+          <label>Players: <input type="number" id="playerCount" min="2" max="8" value="2"/></label>
+          <div id="localPlayersConfig" style="margin-top:12px;"></div>
+        </div>
+        <div id="joinConfig" style="display:none;">
+          <label>Game ID: <input id="joinGameId" type="text" placeholder="Enter Game ID to join"/></label>
+        </div>
+        <button id="startBtn">Next →</button>
+      </div>
+    </div>
+
+    <!-- 2) Lobby -->
+    <div id="lobbyOverlay" style="display:none;">
+      <div class="dialog">
+        <h3>Game Lobby</h3>
+        <p>Game ID: <strong id="lobbyGameId"></strong></p>
+        <p>Players (<span id="joinedCount">0</span>/<span id="maxPlayersDisplay">0</span>):</p>
+        <div id="lobbyPlayersList"></div>
+        <hr/>
+        <h4>You</h4>
+        <div class="player-row">
+          <label>Name: <input id="myName" type="text"/></label>
+        </div>
+        <div class="player-row">
+          <label>Color:
+            <select id="myColor">
+              <option value="#006400">darkgreen</option>
+              <option value="#ff0000">red</option>
+              <option value="#ffd700">gold</option>
+              <option value="#c71585">mediumvioletred</option>
+              <option value="#00ff00">lime</option>
+              <option value="#00ffff">aqua</option>
+              <option value="#0000ff">blue</option>
+              <option value="#1e90ff">dodgerblue</option>
+            </select>
+          </label>
+        </div>
+        <button id="readyBtn">Ready</button>
+        <button id="hostStartBtn" style="display:none;">Start Game</button>
+      </div>
+    </div>
+
+    <!-- 3) Main Game UI -->
+    <div id="wrapper">
+      <h2>Grid Territory</h2>
+      <div id="main">
+        <div id="game-container">
+          <canvas id="gameCanvas"></canvas>
+          <div id="hoverInfo"></div>
+        </div>
+        <div id="sidebar">
+          <div id="chatSection" style="display:none;">
+            <h4>Chat</h4>
+            <div id="chatLog"></div>
+            <input id="chatInput" type="text" placeholder="Type message..."/>
+            <button id="chatSendBtn">Send</button>
+          </div>
+        </div>
+      </div>
+      <div id="info">Waiting…</div>
+      <div id="debug"></div>
+      <button id="restartBtn">Restart Game</button>
+    </div>
+
+    <script>
+    const DEFAULT_COLORS = [
+      '#006400', '#ff0000', '#ffd700', '#c71585',
+      '#00ff00', '#00ffff', '#0000ff', '#1e90ff'
+    ];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const $ = id => document.getElementById(id);
+      const clientId = Math.random().toString(36).substr(2,9);
+      let mode, gridSize, maxPlayers, myIndex, gameRef, started = false;
+      let players = [], lines = [], chat = [], turnIndex = 0;
+      const cellPx = 20,
+            db     = firebase.firestore();
+
+      // UI refs
+      const modeRadios        = document.getElementsByName('mode'),
+            gridSizeConfig    = $('gridSizeConfig'),
+            gridSizeSelect    = $('gridSizeSelect'),
+            hostConfig        = $('hostConfig'),
+            joinConfig        = $('joinConfig'),
+            playerCountIn     = $('playerCount'),
+            localPlayersConfig= $('localPlayersConfig'),
+            joinGameId        = $('joinGameId'),
+            startBtn          = $('startBtn'),
+            setupOverlay      = $('setupOverlay'),
+            lobbyOverlay      = $('lobbyOverlay'),
+            lobbyGameIdEl     = $('lobbyGameId'),
+            maxPlayersEl      = $('maxPlayersDisplay'),
+            joinedCountEl     = $('joinedCount'),
+            lobbyList         = $('lobbyPlayersList'),
+            myNameInput       = $('myName'),
+            myColorSelect     = $('myColor'),
+            readyBtn          = $('readyBtn'),
+            hostStartBtn      = $('hostStartBtn'),
+            wrapper           = $('wrapper'),
+            chatSection       = $('chatSection'),
+            chatLog           = $('chatLog'),
+            chatInput         = $('chatInput'),
+            chatSendBtn       = $('chatSendBtn'),
+            infoEl            = $('info'),
+            hoverInfoEl       = $('hoverInfo'),
+            debugEl           = $('debug'),
+            restartBtn        = $('restartBtn'),
+            canvas            = $('gameCanvas'),
+            ctx               = canvas.getContext('2d'),
+            gameContainer     = $('game-container');
+
+      // Render name+color inputs for local players
+      function renderLocalPlayerConfig() {
+        const count = +playerCountIn.value;
+        localPlayersConfig.innerHTML = '';
+        for (let i = 1; i <= count; i++) {
+          const row = document.createElement('div');
+          row.className = 'player-row';
+          row.innerHTML = `
+            <label>Name:
+              <input
+                type="text"
+                class="localNameInput"
+                data-idx="${i-1}"
+                value="Player ${i}"
+              />
+            </label>
+            <label>Color:
+              <select class="localColorSelect" data-idx="${i-1}">
+                ${DEFAULT_COLORS.map((c, j) =>
+                  `<option value="${c}" ${j === (i-1) ? 'selected' : ''}>${c}</option>`
+                ).join('')}
+              </select>
+            </label>
+          `;
+          localPlayersConfig.appendChild(row);
+        }
       }
-    }
-    renderLocalPlayerConfig();
-    playerCountIn.addEventListener('input', renderLocalPlayerConfig);
+      renderLocalPlayerConfig();
+      playerCountIn.addEventListener('input', renderLocalPlayerConfig);
 
-    // Update showing/hiding of configs
-    function updateConfig(){
-      mode = document.querySelector('input[name=mode]:checked').value;
-      hostConfig.style.display     = mode!=='join' ? 'block' : 'none';
-      joinConfig.style.display     = mode==='join'  ? 'block' : 'none';
-      gridSizeConfig.style.display = mode==='join'  ? 'none'  : 'block';
-    }
-    modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
-    updateConfig();
-
-    // Set up & start
-    startBtn.onclick = async () => {
-      mode = document.querySelector('input[name=mode]:checked').value;
-      const dim = parseInt(gridSizeSelect.value,10);
-
-      // Prepare grid for local & host
-      if(mode!=='join'){
-        gridSize = dim + 1;
-        canvas.width  = cellPx * dim;
-        canvas.height = cellPx * dim;
-        gameContainer.style.width  = canvas.width + 'px';
-        gameContainer.style.height = canvas.height + 'px';
+      // Update showing/hiding of configs
+      function updateConfig(){
+        mode = document.querySelector('input[name=mode]:checked').value;
+        hostConfig.style.display     = mode!=='join' ? 'block' : 'none';
+        joinConfig.style.display     = mode==='join'  ? 'block' : 'none';
+        gridSizeConfig.style.display = mode==='join'  ? 'none'  : 'block';
       }
+      modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
+      updateConfig();
 
-      // *** Local: read inputs & go straight to game ***
-      if(mode==='local'){
+      // Set up & start
+      startBtn.onclick = async () => {
+        mode = document.querySelector('input[name=mode]:checked').value;
+        const dim = parseInt(gridSizeSelect.value,10);
+
+        // Prepare grid for local & host
+        if(mode!=='join'){
+          gridSize = dim + 1;
+          canvas.width  = cellPx * dim;
+          canvas.height = cellPx * dim;
+          gameContainer.style.width  = canvas.width + 'px';
+          gameContainer.style.height = canvas.height + 'px';
+        }
+
+        // *** Local: read inputs & go straight to game ***
+        if(mode==='local'){
+          maxPlayers = +playerCountIn.value;
+          players = [];
+          document.querySelectorAll('.localNameInput').forEach(el=>{
+            const idx   = el.dataset.idx;
+            const name  = el.value || `Player ${+idx+1}`;
+            const color = document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value;
+            players.push({ id:null, name, color, ready:true });
+          });
+          setupOverlay.style.display = 'none';
+          initializeGame();
+          draw();
+          updateInfo();
+          wrapper.style.display = 'flex';
+          wrapper.classList.add('flex');
+          return;
+        }
+
+        // *** Online host/join logic ***
         maxPlayers = +playerCountIn.value;
-        players = [];
-        document.querySelectorAll('.localNameInput').forEach(el=>{
-          const idx   = el.dataset.idx;
-          const name  = el.value || `Player ${+idx+1}`;
-          const color = document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value;
-          players.push({ id:null, name, color, ready:true });
-        });
-        setupOverlay.style.display = 'none';
-        initializeGame();
-        draw();
-        updateInfo();
-        wrapper.style.display = 'flex';
-        wrapper.classList.add('flex');
-        return;
-      }
+        const gid = mode==='host'
+          ? (() => {
+              const id = Math.random().toString(36).substr(2,9);
+              history.replaceState(null,'','?game='+id);
+              return id;
+            })()
+          : joinGameId.value.trim();
+        if(mode==='join' && !gid) return alert('Enter Game ID');
+        setupOverlay.style.display='none';
+        lobbyOverlay.style.display='flex';
+        lobbyGameIdEl.textContent = gid;
+        maxPlayersEl.textContent  = maxPlayers;
+        gameRef = db.collection('games').doc(gid);
 
-      // *** Online host/join logic ***
-      maxPlayers = +playerCountIn.value;
-      const gid = mode==='host'
-        ? (() => {
-            const id = Math.random().toString(36).substr(2,9);
-            history.replaceState(null,'','?game='+id);
-            return id;
-          })()
-        : joinGameId.value.trim();
-      if(mode==='join' && !gid) return alert('Enter Game ID');
-      setupOverlay.style.display='none';
-      lobbyOverlay.style.display='flex';
-      lobbyGameIdEl.textContent = gid;
-      maxPlayersEl.textContent  = maxPlayers;
-      gameRef = db.collection('games').doc(gid);
+        if(mode==='host'){
+          players = [{ id:clientId,name:'Player 1',color:DEFAULT_COLORS[0],ready:false }];
+          await gameRef.set({
+            maxPlayers, players, turnIndex:0,
+            lines:[], chat:[], started:false,
+            gridSizeDim:dim,
+            timestamp:firebase.firestore.FieldValue.serverTimestamp()
+          });
+        } else { // join
+          const snap = await gameRef.get();
+          if(!snap.exists) return alert('Game not found');
+          const data = snap.data();
+          if(data.players.length >= data.maxPlayers) return alert('Game is full');
+          players = data.players;
+          players.push({
+            id:clientId,
+            name:`Player ${players.length+1}`,
+            color: DEFAULT_COLORS[players.length % DEFAULT_COLORS.length],
+            ready:false
+          });
+          await gameRef.update({ players });
+        }
 
-      if(mode==='host'){
-        players = [{ id:clientId,name:'Player 1',color:DEFAULT_COLORS[0],ready:false }];
-        await gameRef.set({
-          maxPlayers, players, turnIndex:0,
-          lines:[], chat:[], started:false,
-          gridSizeDim:dim,
-          timestamp:firebase.firestore.FieldValue.serverTimestamp()
-        });
-      } else { // join
-        const snap = await gameRef.get();
-        if(!snap.exists) return alert('Game not found');
-        const data = snap.data();
-        if(data.players.length >= data.maxPlayers) return alert('Game is full');
-        players = data.players;
-        players.push({
-          id:clientId,
-          name:`Player ${players.length+1}`,
-          color: DEFAULT_COLORS[players.length % DEFAULT_COLORS.length],
-          ready:false
-        });
-        await gameRef.update({ players });
-      }
-
-      gameRef.onSnapshot(doc => handleSnapshot(doc.data()));
-    };
+        gameRef.onSnapshot(doc => handleSnapshot(doc.data()));
+      
+          }
+        };
 
     function handleSnapshot(data){
       players    = data.players;
