@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Grid Territory Multiplayer with Minimap & Indexed Buildings</title>
+  <style>
+    /* ─── Layout & Overlays ────────────────────────────────────────────────── */
+    body, html { display:flex; justify-content:center; align-items:center; height:100%; margin:0; font-family:sans-serif; }
+    #setupOverlay,#lobbyOverlay {
+      position:absolute; top:0; left:0; width:100%; height:100%;
+      background:rgba(255,255,255,0.95);
+      display:flex; align-items:center; justify-content:center; z-index:10;
+    }
+    .dialog { background:#fff; padding:20px; border:1px solid #ccc; border-radius:4px; width:100%; max-width:400px; }
+    .player-row { display:flex; align-items:center; margin-bottom:8px; }
+    .player-row label { flex:1; }
+    #wrapper { display:none; flex-direction:column; width:100%; max-width:1400px; }
+    #wrapper.flex { display:flex; }
+    #main { display:flex; flex:1; }
+
+    /* ─── Game & Canvas ───────────────────────────────────────────────────── */
+    #game-container { border-right:1px solid #ccc; padding:50px; margin-right:16px; background:#fafafa; }
+    canvas { border:none!important; display:block; }
+
+    /* ─── Sidebar ─────────────────────────────────────────────────────────── */
+    #sidebar {
+      flex:0 0 300px; display:flex; flex-direction:row;
+      justify-content:space-between; align-items:center;
+      background:#fafafa; padding:8px;
+    }
+    #scoreboard { width:35%; text-align:center; }
+    #chatSection { display:flex; flex-direction:column; width:60%; }
+    #chatLog {
+      flex:1; overflow-y:auto; border:1px solid #ccc;
+      padding:5px; background:#fff; min-height:100px; max-height:400px;
+    }
+    #chatInput { width:100%; padding:4px; box-sizing:border-box; }
+    #chatSendBtn { margin-top:8px; }
+
+    /* ─── Info & Debug ────────────────────────────────────────────────────── */
+    #info { margin-top:8px; font-weight:600; }
+    #hoverInfo { margin-top:4px; font-size:.9em; color:#333; }
+    #debug { margin-top:8px; font-size:.8em; color:#a00; white-space:pre-wrap; }
+
+    /* ─── Minimap ─────────────────────────────────────────────────────────── */
+    #minimapContainer {
+      flex:0 0 300px; display:flex; flex-direction:column;
+      align-items:center; background:#eef; padding:8px;
+    }
+    #minimapContainer h4 { margin:0 0 8px; }
+    #minimapCanvas { background:#333; image-rendering:pixelated; width:100%; height:auto; }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+  <!-- SETUP OVERLAY -->
+  <div id="setupOverlay">
+    <div class="dialog">
+      <h3>Setup Game</h3>
+      <label><input type="radio" name="mode" value="local" checked> Local</label>
+      <label><input type="radio" name="mode" value="host"> Host Online</label>
+      <label><input type="radio" name="mode" value="join"> Join Online</label>
+      <br/><br/>
+      <div id="gridSizeConfig">
+        <label>Grid Size:
+          <select id="gridSizeSelect">
+            <option value="10">Small (10×10)</option>
+            <option value="20" selected>Medium (20×20)</option>
+            <option value="50">Large (50×50)</option>
+          </select>
+        </label>
+      </div>
+      <br/><br/>
+      <div id="localConfig">
+        <label>Players: <input type="number" id="localPlayerCount" min="2" max="8" value="2"/></label>
+        <div id="localPlayersConfig"></div>
+      </div>
+      <div id="hostConfig" style="display:none;">
+        <label>Players: <input type="number" id="hostPlayerCount" min="2" max="8" value="2"/></label>
+      </div>
+      <div id="joinConfig" style="display:none;">
+        <label>Game ID: <input id="joinGameId" type="text" placeholder="Enter Game ID to join"/></label>
+      </div>
+      <button id="startBtn">Next →</button>
+    </div>
+  </div>
+
+  <!-- LOBBY OVERLAY -->
+  <div id="lobbyOverlay" style="display:none;">
+    <div class="dialog">
+      <h3>Game Lobby</h3>
+      <p>Game ID: <strong id="lobbyGameId"></strong></p>
+      <p>Players (<span id="joinedCount">0</span>/<span id="maxPlayersDisplay">0</span>):</p>
+      <div id="lobbyPlayersList"></div>
+      <hr/>
+      <h4>You</h4>
+      <div class="player-row">
+        <label>Name: <input id="myName" type="text" disabled/></label>
+      </div>
+      <div class="player-row">
+        <label>Color:
+          <select id="myColor" disabled>
+            <option value="#006400">darkgreen</option>
+            <option value="#ff0000">red</option>
+            <option value="#ffd700">gold</option>
+            <option value="#c71585">mediumvioletred</option>
+            <option value="#00ff00">lime</option>
+            <option value="#00ffff">aqua</option>
+            <option value="#0000ff">blue</option>
+            <option value="#1e90ff">dodgerblue</option>
+          </select>
+        </label>
+      </div>
+      <button id="readyBtn" disabled>Ready</button>
+      <button id="hostStartBtn" style="display:none;">Start Game</button>
+    </div>
+  </div>
+
+  <!-- MAIN GAME UI -->
+  <div id="wrapper">
+    <h2>Grid Territory</h2>
+    <div id="main">
+      <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="hoverInfo"></div>
+      </div>
+      <div id="sidebar">
+        <div id="scoreboard">
+          <h4>Score</h4><div id="scoreList"></div>
+        </div>
+        <div id="chatSection">
+          <h4>Chat</h4><div id="chatLog"></div>
+          <input id="chatInput" type="text" placeholder="Type message..."/>
+          <button id="chatSendBtn">Send</button>
+        </div>
+      </div>
+      <div id="minimapContainer">
+        <h4>Minimap</h4>
+        <canvas id="minimapCanvas"></canvas>
+      </div>
+    </div>
+    <div id="info">Waiting…</div>
+    <div id="debug"></div>
+    <button id="restartBtn">Restart Game</button>
+    <button id="pingBtn">Ping</button>
+  </div>
+
+  <script>
+    // Firebase init
+    const firebaseConfig = {
+      apiKey: "AIzaSyAlZwiFJYt73ZamlICtOSRUMOmEujPahTY",
+      authDomain: "territory-58483.firebaseapp.com",
+      projectId: "territory-58483",
+      storageBucket: "territory-58483.firebasestorage.app",
+      messagingSenderId: "848779508191",
+      appId: "1:848779508191:web:54af4953cb1ce7c8b5ac6a",
+      measurementId: "G-MH6R28JNMQ"
+    };
+    firebase.initializeApp(firebaseConfig);
+    firebase.auth().signInAnonymously();
+    const db = firebase.firestore();
+
+    // Helper to load & log sprites
+    function makeSprite(path) {
+      const img = new Image();
+      img.src = path;
+      img.onload  = () => console.log('[OK sprite]  ', path);
+      img.onerror = () => console.error('[FAIL sprite]', path);
+      return img;
+    }
+
+    // Preload terrain variants
+    const grassSprites = ['grass1.png','grass2.png','grass3.png','grass4.png']
+      .map(fn => makeSprite(`assets/${fn}`));
+    const riverSprites = ['river1.png','river2.png','river3.png']
+      .map(fn => makeSprite(`assets/${fn}`));
+    const treeSprites  = ['tree1.png','tree2.png','tree3.png','tree4.png']
+      .map(fn => makeSprite(`assets/${fn}`));
+
+    // Will hold one building sprite per player (by index)
+    let buildingSprites = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const $ = id => document.getElementById(id);
+      const clientId = Math.random().toString(36).substr(2,9);
+
+      // UI refs
+      const modeRadios         = document.getElementsByName('mode'),
+            gridSizeSelect     = $('gridSizeSelect'),
+            localPlayerCountIn = $('localPlayerCount'),
+            setupOverlay       = $('setupOverlay'),
+            lobbyOverlay       = $('lobbyOverlay'),
+            lobbyGameIdEl      = $('lobbyGameId'),
+            maxPlayersEl       = $('maxPlayersDisplay'),
+            joinedCountEl      = $('joinedCount'),
+            lobbyList          = $('lobbyPlayersList'),
+            myNameInput        = $('myName'),
+            myColorSelect      = $('myColor'),
+            readyBtn           = $('readyBtn'),
+            hostStartBtn       = $('hostStartBtn'),
+            wrapper            = $('wrapper'),
+            chatSection        = $('chatSection'),
+            chatLog            = $('chatLog'),
+            chatInput          = $('chatInput'),
+            chatSendBtn        = $('chatSendBtn'),
+            infoEl             = $('info'),
+            hoverInfoEl        = $('hoverInfo'),
+            debugEl            = $('debug'),
+            restartBtn         = $('restartBtn'),
+            pingBtn            = $('pingBtn'),
+            canvas             = $('gameCanvas'),
+            ctx                = canvas.getContext('2d'),
+            gameContainer      = $('game-container'),
+            scoreListEl        = $('scoreList'),
+            minimapCanvas      = $('minimapCanvas'),
+            ctxMini            = minimapCanvas.getContext('2d');
+
+      // Minimap config
+      const isoTileW = 48, isoTileH = 24;
+      let miniOffsetX, miniOffsetY, backgroundMap = [], treePositions = [];
+
+      function initMinimap(){
+        const cols = gridSize - 1, rows = gridSize - 1;
+        const w = (cols + rows) * isoTileW / 2;
+        const h = (cols + rows) * isoTileH / 2 + isoTileH;
+        minimapCanvas.width = w;
+        minimapCanvas.height = h;
+        miniOffsetX = w/2;
+        miniOffsetY = 10;
+
+        backgroundMap = Array.from({ length: rows }, () => Array(cols));
+        for (let y=0; y<rows; y++){
+          for (let x=0; x<cols; x++){
+            if (Math.random()<0.1){
+              backgroundMap[y][x] = { type:'river', idx: Math.floor(Math.random()*riverSprites.length) };
+            } else {
+              backgroundMap[y][x] = { type:'grass', idx: Math.floor(Math.random()*grassSprites.length) };
+            }
+          }
+        }
+        treePositions = [];
+        for (let y=0; y<rows; y++){
+          for (let x=0; x<cols; x++){
+            if (backgroundMap[y][x].type==='grass' && Math.random()<0.05){
+              treePositions.push({ x, y, idx: Math.floor(Math.random()*treeSprites.length) });
+            }
+          }
+        }
+      }
+
+      function toIso(x,y){
+        return {
+          px: (x-y)*(isoTileW/2) + miniOffsetX,
+          py: (x+y)*(isoTileH/2) + miniOffsetY
+        };
+      }
+
+      function drawMinimap(){
+        ctxMini.clearRect(0,0,minimapCanvas.width,minimapCanvas.height);
+        // background
+        for (let y=0; y<backgroundMap.length; y++){
+          for (let x=0; x<backgroundMap[0].length; x++){
+            const cell = backgroundMap[y][x];
+            const {px,py} = toIso(x,y);
+            const img = cell.type==='river'
+                        ? riverSprites[cell.idx]
+                        : grassSprites[cell.idx];
+            ctxMini.drawImage(img, px-isoTileW/2, py-isoTileH/2, isoTileW, isoTileH);
+          }
+        }
+        // trees
+        treePositions.forEach(({x,y,idx})=>{
+          const {px,py} = toIso(x,y);
+          ctxMini.drawImage(treeSprites[idx], px-isoTileW/2, py-isoTileH, isoTileW, isoTileH);
+        });
+        // buildings
+        for (let y=0; y<cells.length; y++){
+          for (let x=0; x<cells[0].length; x++){
+            const owner = cells[y][x];
+            if (owner>0){
+              const img = buildingSprites[owner-1];
+              if (!img){
+                console.error('No buildingSprites['+(owner-1)+']');
+                continue;
+              }
+              const {px,py} = toIso(x,y);
+              ctxMini.drawImage(img, px-isoTileW/2, py-isoTileH, isoTileW, isoTileH);
+            }
+          }
+        }
+      }
+
+      // ─── Core Game Logic ─────────────────────────────────────────────────────
+      const DEFAULT_COLORS = ['#006400','#ff0000','#ffd700','#c71585','#00ff00','#00ffff','#0000ff','#1e90ff'];
+      let mode, gridSize, maxPlayers, myIndex=-1, gameRef, started=false;
+      let players=[], lines=[], chatArr=[], turnIndex=0, pings=[];
+      let endpoints,mids,horiz,vert,cells;
+      const cellPx = 20;
+      let pingMode=false, pingToggle=true, gameOver=false;
+
+      function px2g(px){ return Math.max(0, Math.min(gridSize-1, Math.round(px/cellPx))); }
+      function g2px(g){ return g*cellPx; }
+      function makeEmptyCells(){ return Array.from({length:gridSize-1}, ()=>Array(gridSize-1).fill(0)); }
+      function initializeGame(){
+        endpoints = Array.from({length:gridSize}, ()=>Array(gridSize).fill(false));
+        mids      = Array.from({length:gridSize}, ()=>Array(gridSize).fill(false));
+        horiz     = Array.from({length:gridSize}, ()=>Array(gridSize-1).fill(false));
+        vert      = Array.from({length:gridSize-1}, ()=>Array(gridSize).fill(false));
+        cells     = makeEmptyCells();
+      }
+      function canPass(x,y,nx,ny){
+        return x===nx
+          ? !horiz[Math.min(y,ny)+1][x]
+          : !vert[y][Math.min(x,nx)+1];
+      }
+      function fillTerritories(pl){
+        const rows = gridSize-1, cols = gridSize-1;
+        const vis = Array.from({length:rows}, ()=>Array(cols).fill(false));
+        for (let y=0; y<rows; y++){
+          for (let x=0; x<cols; x++){
+            if (vis[y][x]||cells[y][x]!==0) continue;
+            let queue=[{x,y}], region=[], escapes=false;
+            vis[y][x]=true;
+            while(queue.length){
+              const {x:cx,y:cy}=queue.shift();
+              region.push({x:cx,y:cy});
+              if ((cx===0&&!vert[cy][0])||(cx===cols-1&&!vert[cy][cols])||
+                  (cy===0&&!horiz[0][cx])||(cy===rows-1&&!horiz[rows][cx])){
+                escapes=true;
+              }
+              [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+                const nx=cx+dx, ny=cy+dy;
+                if (nx>=0&&nx<cols&&ny>=0&&ny<rows&&
+                    !vis[ny][nx]&&canPass(cx,cy,nx,ny)){
+                  vis[ny][nx]=true;
+                  queue.push({x:nx,y:ny});
+                }
+              });
+            }
+            if (!escapes) region.forEach(pt=>cells[pt.y][pt.x]=pl+1);
+          }
+        }
+      }
+      function occupy(sx,sy,ex,ey,p){
+        if (sx===ex){
+          const y0=Math.min(sy,ey);
+          for (let d=0; d<3; d++) vert[y0+d][sx]=true;
+        } else {
+          const x0=Math.min(sx,ex);
+          for (let d=0; d<3; d++) horiz[sy][x0+d]=true;
+        }
+        endpoints[sy][sx]=true;
+        endpoints[ey][ex]=true;
+        const midsNew = [
+          {x:sx+(ex-sx)/3, y:sy+(ey-sy)/3},
+          {x:sx+2*(ex-sx)/3, y:sy+2*(ey-sy)/3}
+        ];
+        midsNew.forEach(m=>mids[m.y][m.x]=true);
+        fillTerritories(p);
+      }
+      function isStraight3(sx,sy,ex,ey){
+        const dx=Math.abs(ex-sx), dy=Math.abs(ey-sy);
+        return (dx===3&&dy===0)||(dx===0&&dy===3);
+      }
+      function isConnected(sx,sy,ex,ey){
+        if (!lines.length) return true;
+        const pts = [
+          {x:sx,y:sy},{x:ex,y:ey},
+          {x:sx+(ex-sx)/3,y:sy+(ey-sy)/3},
+          {x:sx+2*(ex-sx)/3,y:sy+2*(ey-sy)/3}
+        ];
+        return pts.some(pt=>endpoints[pt.y][pt.x]||mids[pt.y][pt.x]);
+      }
+      function noNodeReuse(sx,sy,ex,ey){
+        const midsNew = [
+          {x:sx+(ex-sx)/3,y:sy+(ey-sy)/3},
+          {x:sx+2*(ex-sx)/3,y:sy+2*(ey-sy)/3}
+        ];
+        return midsNew.every(m=>!mids[m.y][m.x]);
+      }
+      function noTerritory(sx,sy,ex,ey){
+        if (sx===ex){
+          const y0=Math.min(sy,ey);
+          for (let d=0; d<3; d++){
+            const y=y0+d;
+            if ((sx-1>=0&&cells[y][sx-1]!==0)||(sx<gridSize-1&&cells[y][sx]!==0))
+              return false;
+          }
+        } else {
+          const x0=Math.min(sx,ex);
+          for (let d=0; d<3; d++){
+            const x=x0+d;
+            if ((sy-1>=0&&cells[sy-1][x]!==0)||(sy<gridSize-1&&cells[sy][x]!==0))
+              return false;
+          }
+        }
+        return true;
+      }
+      function noMutualEndpointMidViolation(sx,sy,ex,ey){
+        const midsNew = [
+          {x:sx+(ex-sx)/3,y:sy+(ey-sy)/3},
+          {x:sx+2*(ex-sx)/3,y:sy+2*(ey-sy)/3}
+        ];
+        const endsNew = [{x:sx,y:sy},{x:ex,y:ey}];
+        for (const ln of lines){
+          const midsOld = [
+            {x:ln.sx+(ln.ex-ln.sx)/3,y:ln.sy+(ln.ey-ln.sy)/3},
+            {x:ln.sx+2*(ln.ex-ln.sx)/3,y:ln.sy+2*(ln.ey-ln.sy)/3}
+          ];
+          const endsOld = [{x:ln.sx,y:ln.sy},{x:ln.ex,y:ln.ey}];
+          const epOnOldMid = endsNew.some(eN => midsOld.some(mO => eN.x===mO.x&&eN.y===mO.y));
+          const oldEpOnNewMid = endsOld.some(eO => midsNew.some(mN => eO.x===mN.x&&eO.y===mN.y));
+          if (epOnOldMid && oldEpOnNewMid) return false;
+        }
+        return true;
+      }
+
+      function draw(){
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        // grid
+        ctx.strokeStyle='#ddd';ctx.lineWidth=1;
+        for (let i=0; i<gridSize; i++){
+          const p=g2px(i);
+          ctx.beginPath();ctx.moveTo(p,0);ctx.lineTo(p,canvas.height);ctx.stroke();
+          ctx.beginPath();ctx.moveTo(0,p);ctx.lineTo(canvas.width,p);ctx.stroke();
+        }
+        // territories
+        cells.forEach((row,y)=>row.forEach((c,x)=>{
+          if (c>0){
+            ctx.globalAlpha=0.2;
+            ctx.fillStyle=players[c-1].color;
+            ctx.fillRect(g2px(x),g2px(y),cellPx,cellPx);
+            ctx.globalAlpha=1;
+          }
+        }));
+        // lines
+        lines.forEach((ln,i)=>{
+          ctx.beginPath();ctx.setLineDash([]);ctx.lineCap='round';
+          ctx.lineWidth=(i===lines.length-1?6:4);
+          ctx.strokeStyle=players[ln.playerIndex].color;
+          ctx.moveTo(g2px(ln.sx),g2px(ln.sy));
+          ctx.lineTo(g2px(ln.ex),g2px(ln.ey));ctx.stroke();
+        });
+        // pings
+        if (pings.length && pingToggle){
+          ctx.font=`${cellPx}px sans-serif`;
+          pings.forEach(r=>ctx.fillText('⚠️',g2px(r.x),g2px(r.y+1)));
+        }
+        // minimap
+        drawMinimap();
+      }
+
+      // Score & info
+      function updateScoreboard(cnts){
+        scoreListEl.innerHTML='';
+        players.forEach((p,i)=>{
+          const d=document.createElement('div');
+          d.innerHTML=`${p.name}: ${cnts[i]} <span style="color:${p.color}">▩</span>`;
+          scoreListEl.append(d);
+        });
+      }
+      function updateInfo(){
+        const cnts=players.map(()=>0);
+        cells.forEach(r=>r.forEach(c=>{ if(c>0) cnts[c-1]++; }));
+        infoEl.textContent=`Turn: ${players[turnIndex]?.name||''}`;
+        updateScoreboard(cnts);
+      }
+      function countPossibleMoves(){
+        let c=0;
+        for (let y=0; y<gridSize; y++){
+          for (let x=0; x<gridSize; x++){
+            [[3,0],[-3,0],[0,3],[0,-3]].forEach(([dx,dy])=>{
+              const ex=x+dx, ey=y+dy;
+              if (ex<0||ex>=gridSize||ey<0||ey>=gridSize) return;
+              if (isStraight3(x,y,ex,ey)&&isConnected(x,y,ex,ey)&&noNodeReuse(x,y,ex,ey)
+                  &&noTerritory(x,y,ex,ey)&&noMutualEndpointMidViolation(x,y,ex,ey)) c++;
+            });
+          }
+        }
+        return c;
+      }
+      function updatePossibleMoves(){ if (countPossibleMoves()===0 && !gameOver) endGame(); }
+      async function endGame(){
+        gameOver=true;
+        const cnts=players.map(()=>0);
+        cells.forEach(r=>r.forEach(c=>{ if(c>0) cnts[c-1]++; }));
+        const wi=cnts.indexOf(Math.max(...cnts)), wn=players[wi]?.name;
+        alert(`Game over! ${wn} wins with ${cnts[wi]} territories.`);
+        scoreListEl.children[wi].textContent+=' 👑';
+      }
+
+      // Blink pings
+      setInterval(()=>{
+        pingToggle=!pingToggle;
+        if (pings.length){
+          pings.forEach(p=>p.blinkCount--);
+          if (pings[0].blinkCount<=0) pings=[];
+        }
+        draw();
+      }, 500);
+
+      // Setup overlay
+      function updateConfig(){
+        const sel=document.querySelector('input[name=mode]:checked'); mode=sel?.value||'local';
+        $('gridSizeConfig').style.display=mode==='join'?'none':'block';
+        $('localConfig').style.display=mode==='local'?'block':'none';
+        $('hostConfig').style.display=mode==='host'?'block':'none';
+        $('joinConfig').style.display=mode==='join'?'block':'none';
+      }
+      modeRadios.forEach(r=>r.addEventListener('change',updateConfig));
+      updateConfig();
+
+      function renderLocalPlayerConfig(){
+        const cnt=+localPlayerCountIn.value;
+        $('localPlayersConfig').innerHTML='';
+        for (let i=1; i<=cnt; i++){
+          const div=document.createElement('div');
+          div.className='player-row';
+          div.innerHTML=`
+            <label>Name:
+              <input type="text" class="localNameInput" data-idx="${i-1}" value="Player ${i}"/>
+            </label>
+            <label>Color:
+              <select class="localColorSelect" data-idx="${i-1}">
+                ${DEFAULT_COLORS.map((c,j)=>`<option value="${c}" ${j===i-1?'selected':''}>${c}</option>`).join('')}
+              </select>
+            </label>`;
+          $('localPlayersConfig').append(div);
+        }
+      }
+      localPlayerCountIn.addEventListener('input',renderLocalPlayerConfig);
+      renderLocalPlayerConfig();
+
+      // Lobby handlers
+      myNameInput.onchange = ()=>{ if(myIndex<0) return; players[myIndex].name=myNameInput.value; gameRef.update({players}); };
+      myColorSelect.onchange= ()=>{ if(myIndex<0) return; players[myIndex].color=myColorSelect.value; gameRef.update({players}); };
+      readyBtn.onclick    = ()=>{ if(myIndex<0) return; players[myIndex].ready=!players[myIndex].ready; gameRef.update({players}); };
+      hostStartBtn.onclick= async()=>{ await gameRef.update({started:true, timestamp:firebase.firestore.FieldValue.serverTimestamp()}); };
+
+      // Canvas events
+      let clickStart=null;
+      canvas.addEventListener('mousemove',e=>{
+        const r=canvas.getBoundingClientRect(), gx=px2g(e.clientX-r.left), gy=px2g(e.clientY-r.top);
+        if (clickStart){
+          draw();
+          ctx.beginPath(); ctx.setLineDash([5,5]); ctx.lineWidth=2; ctx.strokeStyle='gray';
+          ctx.moveTo(g2px(clickStart.x),g2px(clickStart.y));
+          ctx.lineTo(g2px(gx),g2px(gy)); ctx.stroke();
+          ctx.setLineDash([]);
+        } else {
+          hoverInfoEl.textContent=`Hovered: (${gx},${gy})`;
+        }
+      });
+      canvas.addEventListener('mouseleave',()=>hoverInfoEl.textContent='');
+      canvas.addEventListener('click',async e=>{
+        const r=canvas.getBoundingClientRect(), gx=px2g(e.clientX-r.left), gy=px2g(e.clientY-r.top);
+        if (pingMode){
+          const pingObj={x:gx,y:gy,blinkCount:4};
+          if (mode!=='local'){ await gameRef.update({pings:[pingObj]}); setTimeout(()=>gameRef.update({pings:[]}),2000); }
+          pings=[pingObj]; pingMode=false; debugEl.textContent=''; draw(); return;
+        }
+        if ((mode!=='local'&&!started) || gameOver){
+          debugEl.textContent=gameOver?'Game over.':'Not started yet.'; clickStart=null; return;
+        }
+        if (mode!=='local' && turnIndex!==myIndex){
+          debugEl.textContent='Not your turn.'; clickStart=null; return;
+        }
+        if (!clickStart){ clickStart={x:gx,y:gy}; return; }
+        const sx=clickStart.x, sy=clickStart.y; clickStart=null; debugEl.textContent='';
+        const ex=gx, ey=gy;
+        if (!isStraight3(sx,sy,ex,ey))             debugEl.textContent='Line must be straight & length 3.';
+        else if (!isConnected(sx,sy,ex,ey))         debugEl.textContent='Must touch existing point.';
+        else if (!noNodeReuse(sx,sy,ex,ey))         debugEl.textContent='Cannot cross interior.';
+        else if (!noTerritory(sx,sy,ex,ey))         debugEl.textContent='Cannot go through territory.';
+        else if (!noMutualEndpointMidViolation(sx,sy,ex,ey))
+                                                     debugEl.textContent='Illegal endpoint↔midpoint cross.';
+        else {
+          if (mode!=='local'){
+            const newLines=[...lines,{sx,sy,ex,ey,playerIndex:turnIndex}];
+            const next=(turnIndex+1)%players.length;
+            await gameRef.update({lines:newLines, turnIndex:next, lastUpdate:firebase.firestore.FieldValue.serverTimestamp()});
+          } else {
+            lines.push({sx,sy,ex,ey,playerIndex:turnIndex});
+            occupy(sx,sy,ex,ey,turnIndex);
+            turnIndex=(turnIndex+1)%players.length;
+            draw(); updateInfo(); updatePossibleMoves();
+          }
+        }
+      });
+
+      // Chat
+      chatSendBtn.onclick=()=>{
+        const text=chatInput.value.trim(); if(!text) return;
+        const msg={senderId:clientId, senderName:players[myIndex]?.name, text, timestamp:firebase.firestore.Timestamp.now()};
+        gameRef.update({chat:firebase.firestore.FieldValue.arrayUnion(msg), lastUpdate:firebase.firestore.FieldValue.serverTimestamp()});
+        chatInput.value='';
+      };
+      function renderChat(){
+        chatLog.innerHTML='';
+        chatArr.slice().sort((a,b)=>{
+          const ta=a.timestamp.seconds||a.timestamp, tb=b.timestamp.seconds||b.timestamp;
+          return ta-tb;
+        }).forEach(m=>{
+          const time=m.timestamp.seconds
+            ? new Date(m.timestamp.seconds*1000).toLocaleTimeString()
+            : new Date(m.timestamp).toLocaleTimeString();
+          const d=document.createElement('div');
+          d.innerHTML=`<strong>${m.senderName}</strong> [${time}]: ${m.text}`;
+          chatLog.append(d);
+        });
+        chatLog.scrollTop=chatLog.scrollHeight;
+      }
+
+      // Ping
+      pingBtn.onclick=()=>{ pingMode=true; debugEl.textContent='Click a cell to ping'; };
+
+      // Restart
+      restartBtn.onclick=async()=>{
+        if (mode==='local'){
+          lines=[]; turnIndex=0; initializeGame(); draw(); updateInfo(); updatePossibleMoves(); gameOver=false;
+        } else {
+          const newId=Math.random().toString(36).substr(2,9);
+          history.replaceState(null,'','?game='+newId);
+          const dim=parseInt(gridSizeSelect.value,10);
+          await db.collection('games').doc(newId).set({
+            maxPlayers, players, turnIndex:0,
+            lines:[], chat:[], started:true,
+            gridSizeDim:dim,
+            timestamp:firebase.firestore.FieldValue.serverTimestamp(),
+            pings:[]
+          });
+          gameRef=db.collection('games').doc(newId);
+          gameOver=false;
+          gameRef.onSnapshot(doc=>handleSnapshot(doc.data()||{}));
+        }
+      };
+
+      // Start/Join
+      $('startBtn').onclick=async()=>{
+        const sel=document.querySelector('input[name=mode]:checked'); mode=sel?.value||'local';
+        const dim=parseInt(gridSizeSelect.value,10);
+        if (mode!=='join'){
+          gridSize=dim+1;
+          canvas.width=canvas.height=cellPx*dim;
+          gameContainer.style.width=canvas.width+'px';
+          gameContainer.style.height=canvas.height+'px';
+          initMinimap();
+        }
+        if (mode==='local'){
+          maxPlayers=+localPlayerCountIn.value; players=[];
+          document.querySelectorAll('.localNameInput').forEach(el=>{
+            const idx=+el.dataset.idx;
+            players.push({
+              id:null,
+              name:el.value||`Player ${idx+1}`,
+              color:document.querySelector(`.localColorSelect[data-idx="${idx}"]`).value,
+              ready:true
+            });
+          });
+          setupOverlay.style.display='none';
+          initializeGame(); draw(); updateInfo(); updatePossibleMoves();
+          wrapper.style.display='flex'; wrapper.classList.add('flex');
+          return;
+        }
+        maxPlayers=+$('hostPlayerCount').value;
+        const gid=mode==='host'
+          ? (()=>{ const id=Math.random().toString(36).substr(2,9); history.replaceState(null,'','?game='+id); return id; })()
+          : $('joinGameId').value.trim();
+        if (mode==='join' && !gid) return alert('Enter Game ID');
+        setupOverlay.style.display='none'; lobbyOverlay.style.display='flex';
+        lobbyGameIdEl.textContent=gid; maxPlayersEl.textContent=maxPlayers;
+        gameRef=db.collection('games').doc(gid);
+        if (mode==='host'){
+          players=[{id:clientId,name:'Player 1',color:DEFAULT_COLORS[0],ready:false}];
+          await gameRef.set({
+            maxPlayers, players, turnIndex:0,
+            lines:[], chat:[], started:false,
+            gridSizeDim:dim,
+            timestamp:firebase.firestore.FieldValue.serverTimestamp(),
+            pings:[]
+          });
+        } else {
+          const snap=await gameRef.get(); if (!snap.exists) return alert('Game not found');
+          const data=snap.data(); if (data.players.length>=data.maxPlayers) return alert('Game is full');
+          players=data.players;
+          players.push({
+            id:clientId,
+            name:`Player ${players.length+1}`,
+            color:DEFAULT_COLORS[players.length%DEFAULT_COLORS.length],
+            ready:false
+          });
+          await gameRef.update({players});
+        }
+        gameRef.onSnapshot(doc=>handleSnapshot(doc.data()||{}));
+      };
+
+      // Snapshot handler
+      function handleSnapshot(data){
+        players    = data.players    || players;
+        lines      = data.lines      || lines;
+        chatArr    = data.chat       || chatArr;
+        turnIndex  = typeof data.turnIndex==='number'?data.turnIndex:turnIndex;
+        maxPlayers = typeof data.maxPlayers==='number'?data.maxPlayers:maxPlayers;
+        started    = !!data.started;
+        pings      = Array.isArray(data.pings)?data.pings:pings;
+
+        if (!started){
+          // Lobby UI
+          joinedCountEl.textContent=players.length;
+          lobbyList.innerHTML='';
+          players.forEach(p=>{
+            const d=document.createElement('div');
+            const sw=document.createElement('span');
+            sw.style.cssText='display:inline-block;width:12px;height:12px;margin-right:5px;background:'+p.color;
+            d.append(sw, p.name + (p.ready?' (Ready)':''));
+            lobbyList.append(d);
+          });
+          myIndex=players.findIndex(p=>p.id===clientId);
+          if (myIndex>=0){
+            myNameInput.disabled=myColorSelect.disabled=readyBtn.disabled=false;
+            myNameInput.value=players[myIndex].name;
+            myColorSelect.value=players[myIndex].color;
+            readyBtn.textContent=players[myIndex].ready?'Unready':'Ready';
+          }
+          if (players[myIndex]?.id===clientId){
+            hostStartBtn.style.display='inline-block';
+            hostStartBtn.disabled=!(players.length===maxPlayers && players.every(x=>x.ready));
+          }
+        } else {
+          // Assign building sprites in index order
+          const buildingFiles = [
+            'building_1.png','building_2.png','building_3.png','building_4.png',
+            'building_5.png','building_6.png','building_7.png','building_8.png'
+          ];
+          buildingSprites = players.map((_,i) => makeSprite(`assets/${buildingFiles[i] || buildingFiles[0]}`));
+
+          initMinimap();
+          lobbyOverlay.style.display='none';
+          wrapper.style.display='flex'; wrapper.classList.add('flex');
+          chatSection.style.display='flex';
+
+          initializeGame();
+          lines.forEach(ln=>occupy(ln.sx,ln.sy,ln.ex,ln.ey,ln.playerIndex));
+          draw();
+          renderChat();
+          updateInfo();
+          updatePossibleMoves();
+        }
+      }
+    });
+  </script>
+</body>
+</html>
